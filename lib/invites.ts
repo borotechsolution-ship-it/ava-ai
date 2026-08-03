@@ -1,7 +1,6 @@
 import { config } from "@/lib/config";
-import { buildCompanyContext } from "@/lib/company-context";
 import { decryptSecret, encryptSecret, randomToken, sha256 } from "@/lib/crypto";
-import { createLiveKitToken, dispatchAvaAgent } from "@/lib/livekit";
+import { createLiveKitToken } from "@/lib/livekit";
 import { setDemoCookie } from "@/lib/demo-cookie";
 import { supabaseAdmin } from "@/lib/supabase";
 import type { DemoInvite, DemoSession } from "@/lib/types";
@@ -222,39 +221,6 @@ export async function redeemInviteToken(token: string) {
 
   if (authError) throw authError;
   await setDemoCookie(cookieSecret);
-  const { data: inviteForAgent } = await supabaseAdmin()
-    .from("demo_invites")
-    .select("id,sales_account_id,prospect_name,company_name,industry")
-    .eq("id", session.invite_id)
-    .maybeSingle();
-
-  const { data: salesAccount } = inviteForAgent?.sales_account_id
-    ? await supabaseAdmin()
-        .from("sales_accounts")
-        .select("gemini_key_slot")
-        .eq("id", inviteForAgent.sales_account_id)
-        .maybeSingle()
-    : { data: null };
-
-  const companyContext = await buildCompanyContext({
-    prospectName: inviteForAgent?.prospect_name,
-    companyName: inviteForAgent?.company_name,
-    industry: inviteForAgent?.industry
-  });
-
-  await dispatchAvaAgent(session.livekit_room_name, {
-    prospectName: inviteForAgent?.prospect_name,
-    companyName: inviteForAgent?.company_name,
-    industry: inviteForAgent?.industry,
-    salesAccountId: inviteForAgent?.sales_account_id,
-    inviteId: inviteForAgent?.id,
-    sessionId: session.id,
-    geminiKeySlot: salesAccount?.gemini_key_slot,
-    companyContext
-  }).catch((error) => {
-    console.error("Failed to dispatch Ava agent", error);
-  });
-
   return authorizedSession(session, reconnectSecret);
 }
 

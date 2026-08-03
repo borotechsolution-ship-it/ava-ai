@@ -178,6 +178,14 @@ async function selectGeminiKey(metadata) {
     if (winner) return winner;
   }
 
+  if (slotKey) {
+    return { apiKey: slotKey, slot: requestedSlot, role: "primary_unverified" };
+  }
+
+  if (backupKey) {
+    return { apiKey: backupKey, slot: "global_backup", role: "backup_unverified" };
+  }
+
   return { apiKey: requiredEnv("GOOGLE_API_KEY"), slot: "default", role: "default" };
 }
 
@@ -208,7 +216,7 @@ async function isGeminiKeyHealthy(slot, apiKey) {
   if (cached && cached.until > Date.now()) return cached.ok;
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), numberEnv("GEMINI_KEY_HEALTH_TIMEOUT_MS", 1800));
+  const timeout = setTimeout(() => controller.abort(), numberEnv("GEMINI_KEY_HEALTH_TIMEOUT_MS", 3500));
   const checkedAt = Date.now();
 
   try {

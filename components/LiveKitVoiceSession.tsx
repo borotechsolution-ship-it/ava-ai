@@ -159,8 +159,21 @@ export function LiveKitVoiceSession({
         await room.localParticipant.publishTrack(mic);
 
         if (!mounted) return;
-        setState("listening");
-        setMessage("Microphone connected. Speak naturally with Ava.");
+        setState("ready");
+        setMessage("Microphone ready. Ava is joining now...");
+
+        const dispatchResponse = await fetch("/api/demo/dispatch", { method: "POST" });
+        if (!dispatchResponse.ok) {
+          endRequestedRef.current = true;
+          room.disconnect();
+          setState("error");
+          setMessage("Ava is temporarily busy. Please try again in about one minute.");
+          window.dispatchEvent(new CustomEvent("ava-call-failed", { detail: { reason: "ava_dispatch_failed" } }));
+          return;
+        }
+
+        if (!mounted) return;
+        setMessage("Ava is joining. Keep this page open.");
 
         window.setTimeout(() => {
           if (!mounted || endRequestedRef.current || clockStartedRef.current || avaAudioReceivedRef.current) return;

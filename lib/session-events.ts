@@ -1,7 +1,8 @@
 import { getDemoCookie } from "@/lib/demo-cookie";
 import { sha256 } from "@/lib/crypto";
 import { config } from "@/lib/config";
-import { endLiveKitRoom } from "@/lib/livekit";
+import { buildCompanyContext } from "@/lib/company-context";
+import { dispatchAvaAgent, endLiveKitRoom } from "@/lib/livekit";
 import { supabaseAdmin } from "@/lib/supabase";
 
 export async function sessionIdFromCookie() {
@@ -57,6 +58,53 @@ export async function startSessionClock() {
   await supabaseAdmin().from("demo_session_auth").update({ expires_at: authExpiresAt }).eq("session_id", sessionId);
 
   return data.expires_at as string;
+}
+
+export async function dispatchAvaForCurrentSession() {
+  const sessionId = await sessionIdFromCookie();
+  if (!sessionId) return false;
+
+  const { data: session, error: sessionError } = await supabaseAdmin()
+    .from("demo_sessions")
+    .select("id,invite_id,livekit_room_name,status")
+    .eq("id", sessionId)
+    .in("status", ["created", "started"])
+    .maybeSingle();
+
+  if (sessionError || !session?.livekit_room_name) return false;
+
+  const { data: invite } = await supabaseAdmin()
+    .from("demo_invites")
+    .select("id,sales_account_id,prospect_name,company_name,industry")
+    .eq("id", session.invite_id)
+    .maybeSingle();
+
+  const { data: salesAccount } = invite?.sales_account_id
+    ? await supabaseAdmin()
+        .from("sales_accounts")
+        .select("gemini_key_slot")
+        .eq("id", invite.sales_account_id)
+        .maybeSingle()
+    : { data: null };
+
+  const companyContext = await buildCompanyContext({
+    prospectName: invite?.prospect_name,
+    companyName: invite?.company_name,
+    industry: invite?.industry
+  });
+
+  await dispatchAvaAgent(session.livekit_room_name as string, {
+    prospectName: invite?.prospect_name,
+    companyName: invite?.company_name,
+    industry: invite?.industry,
+    salesAccountId: invite?.sales_account_id,
+    inviteId: invite?.id,
+    sessionId: session.id,
+    geminiKeySlot: salesAccount?.gemini_key_slot,
+    companyContext
+  });
+
+  return true;
 }
 
 export async function completeSession(status: "completed" | "timed_out", aiSpeechSeconds: number) {

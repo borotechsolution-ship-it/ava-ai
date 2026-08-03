@@ -43,6 +43,15 @@ export async function dispatchAvaAgent(
     config.livekitApiSecret
   );
 
+  const existingDispatches = await dispatcher.listDispatch(roomName).catch(() => []);
+  const activeAvaDispatch = existingDispatches.find((dispatch) => {
+    if (dispatch.agentName !== AVA_AGENT_NAME) return false;
+    const deletedAt = String(dispatch.state?.deletedAt || "0");
+    return deletedAt === "0";
+  });
+
+  if (activeAvaDispatch) return activeAvaDispatch;
+
   return dispatcher.createDispatch(roomName, AVA_AGENT_NAME, {
     metadata: JSON.stringify({
       product: "private_voice_demo",
