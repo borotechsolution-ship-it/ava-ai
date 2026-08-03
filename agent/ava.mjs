@@ -18,6 +18,7 @@ loadEnvConfig(process.cwd());
 
 const BUSY_MESSAGE = "Ava is temporarily busy. Please try again in about one minute.";
 const providerCooldowns = new Map();
+const geminiHealthCache = new Map();
 
 const AVA_BASE_INSTRUCTIONS = `
 You are Ava, a premium AI receptionist.
@@ -157,21 +158,90 @@ function setSlotCooldown(provider, slot, seconds = 60) {
   providerCooldowns.set(`${provider}:${slot}`, Date.now() + Math.max(10, seconds) * 1000);
 }
 
-function selectGeminiKey(metadata) {
+async function selectGeminiKey(metadata) {
   const requestedSlot = normalizeSlot(metadata.geminiKeySlot, "default");
   const slotEnv = slotEnvName("GEMINI_API_KEY", requestedSlot);
   const slotKey = slotEnv ? optionalEnv(slotEnv) : "";
   const backupKey = optionalEnv("GEMINI_API_KEY_GLOBAL_BACKUP");
+  const candidates = [];
 
   if (slotKey && !isSlotCoolingDown("gemini", requestedSlot)) {
-    return { apiKey: slotKey, slot: requestedSlot, role: "primary" };
+    candidates.push({ apiKey: slotKey, slot: requestedSlot, role: "primary" });
   }
 
   if (backupKey && !isSlotCoolingDown("gemini", "global_backup")) {
-    return { apiKey: backupKey, slot: "global_backup", role: "backup" };
+    candidates.push({ apiKey: backupKey, slot: "global_backup", role: "backup" });
+  }
+
+  if (candidates.length) {
+    const winner = await firstHealthyGeminiKey(candidates);
+    if (winner) return winner;
   }
 
   return { apiKey: requiredEnv("GOOGLE_API_KEY"), slot: "default", role: "default" };
+}
+
+async function firstHealthyGeminiKey(candidates) {
+  const checks = candidates.map((candidate) => (
+    isGeminiKeyHealthy(candidate.slot, candidate.apiKey).then((ok) => {
+      if (!ok) {
+        setSlotCooldown("gemini", candidate.slot, numberEnv("GEMINI_UNHEALTHY_COOLDOWN_SECONDS", 120));
+        return null;
+      }
+
+      return candidate;
+    })
+  ));
+
+  while (checks.length) {
+    const result = await Promise.race(checks.map((check, index) => check.then((value) => ({ index, value }))));
+    checks.splice(result.index, 1);
+    if (result.value) return result.value;
+  }
+
+  return null;
+}
+
+async function isGeminiKeyHealthy(slot, apiKey) {
+  const cacheKey = `${slot}:${geminiModelName()}`;
+  const cached = geminiHealthCache.get(cacheKey);
+  if (cached && cached.until > Date.now()) return cached.ok;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), numberEnv("GEMINI_KEY_HEALTH_TIMEOUT_MS", 1800));
+  const checkedAt = Date.now();
+
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(geminiModelName())}:generateContent?key=${encodeURIComponent(apiKey)}`,
+      {
+        method: "POST",
+        signal: controller.signal,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: "Reply OK." }] }],
+          generationConfig: {
+            temperature: 0,
+            maxOutputTokens: 4
+          }
+        })
+      }
+    );
+    const ok = response.ok;
+    geminiHealthCache.set(cacheKey, {
+      ok,
+      until: checkedAt + numberEnv(ok ? "GEMINI_KEY_HEALTH_TTL_MS" : "GEMINI_KEY_FAILURE_TTL_MS", ok ? 300_000 : 120_000)
+    });
+    return ok;
+  } catch {
+    geminiHealthCache.set(cacheKey, {
+      ok: false,
+      until: checkedAt + numberEnv("GEMINI_KEY_FAILURE_TTL_MS", 120_000)
+    });
+    return false;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function selectCartesiaKey() {
@@ -272,7 +342,7 @@ export default defineAgent({
 
     const metadata = parseDispatchMetadata(ctx);
     const companyContext = companyContextFromMetadata(metadata);
-    const geminiKey = selectGeminiKey(metadata);
+    const geminiKey = await selectGeminiKey(metadata);
     const cartesiaKey = selectCartesiaKey();
     let handledProviderFailure = false;
 
@@ -340,7 +410,9 @@ export default defineAgent({
       const rateLimited = isRateLimitError(event?.error);
       handledProviderFailure = true;
 
-      if (rateLimited && activeSlot) {
+      if (provider === "gemini" && activeSlot) {
+        setSlotCooldown(provider, activeSlot, retrySeconds);
+      } else if (rateLimited && activeSlot) {
         setSlotCooldown(provider, activeSlot, retrySeconds);
       }
 
