@@ -7,6 +7,7 @@ import { LiveKitVoiceSession } from "@/components/LiveKitVoiceSession";
 import { config } from "@/lib/config";
 import { getDemoCookie } from "@/lib/demo-cookie";
 import { reconnectDemo } from "@/lib/invites";
+import { dispatchAvaForCurrentSession } from "@/lib/session-events";
 
 export default async function DemoPage() {
   const session = await reconnectDemo(await getDemoCookie()).catch(() => null);
@@ -14,6 +15,10 @@ export default async function DemoPage() {
     redirect("/demo/unavailable");
     return null;
   }
+
+  await dispatchAvaForCurrentSession().catch((error) => {
+    console.error("Failed to pre-dispatch Ava for demo session", error);
+  });
 
   return (
     <main className="invite-hero">

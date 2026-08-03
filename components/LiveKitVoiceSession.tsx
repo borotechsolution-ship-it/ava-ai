@@ -40,6 +40,7 @@ export function LiveKitVoiceSession({
     let mounted = true;
     setLogLevel(LogLevel.debug);
     setLogExtension((level, msg, context) => {
+      if (endRequestedRef.current) return;
       if (!mounted || level < LogLevel.warn || !msg.toLowerCase().includes("websocket")) return;
       setDetail((current) => {
         const line = compactLiveKitLog(msg, context);
@@ -63,6 +64,7 @@ export function LiveKitVoiceSession({
       setIsAvaAudioPlaying(isPlaying);
       if (isPlaying) {
         void startCallClockOnce(clockStartedRef, totalSeconds);
+        setDetail("");
         setMessage("Ava audio connected. Speak naturally.");
         return;
       }
@@ -75,6 +77,7 @@ export function LiveKitVoiceSession({
       const elements = audioElementsRef.current;
       if (!elements.length) return;
 
+      await room.startAudio().catch(() => undefined);
       await Promise.all(
         elements.map(async (element) => {
           element.muted = false;
@@ -103,6 +106,7 @@ export function LiveKitVoiceSession({
         void startCallClockOnce(clockStartedRef, totalSeconds);
         setIsAvaAudioPlaying(true);
         setState("listening");
+        setDetail("");
         setMessage("Ava audio connected. Speak naturally.");
       });
       element.addEventListener("canplay", () => {
@@ -138,6 +142,7 @@ export function LiveKitVoiceSession({
           if (endRequestedRef.current) {
             setState("ended");
             setMessage("Call ended.");
+            setDetail("");
             return;
           }
           setState("error");
@@ -222,6 +227,7 @@ export function LiveKitVoiceSession({
       setIsAvaAudioPlaying(false);
       setState("ended");
       setMessage("Call ended.");
+      setDetail("");
     };
 
     window.addEventListener("ava-call-ended", handleEnd);
@@ -229,6 +235,8 @@ export function LiveKitVoiceSession({
   }, []);
 
   const enableAudio = async () => {
+    await roomRef.current?.startAudio().catch(() => undefined);
+
     const audioElements = audioElementsRef.current.length
       ? audioElementsRef.current
       : Array.from(audioHostRef.current?.querySelectorAll("audio") || []);

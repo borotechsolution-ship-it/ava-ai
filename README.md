@@ -43,8 +43,45 @@ Server-side, single-use invitation system for the BoroTech voice demo.
    npm run agent:dev
    ```
 
+## Runtime Architecture
+
+The invite flow separates page views, intentional starts, and live demo timing:
+
+```text
+Sales CRM
+  -> creates a private invite and encrypted token record in Supabase
+
+Invite page
+  -> validates the token only
+  -> does not consume the invite
+
+Green call button
+  -> runs a server action
+  -> atomically redeems the invite in Supabase
+  -> creates the demo session and secure reconnect cookie
+  -> redirects to /demo
+
+/demo page
+  -> validates the session cookie server-side
+  -> creates a short-lived LiveKit browser token
+  -> pre-dispatches Ava into the LiveKit room so she is warming before browser audio finishes
+
+Browser
+  -> joins the LiveKit room
+  -> publishes microphone audio
+  -> subscribes to Ava audio
+
+Ava worker
+  -> receives room metadata
+  -> loads company and industry context
+  -> uses Deepgram STT, Gemini LLM, and Cartesia TTS
+  -> speaks the personalized receptionist greeting
+```
+
+The invite is considered consumed after the user intentionally clicks the call button and the server creates the demo session. The 150-second demo timer starts only when Ava audio is actually playing in the browser.
+
 ## Security notes
 
-Opening `/invite/[token]` validates the invite but does not consume it and does not generate a LiveKit token. The invite is consumed only by a POST to `/api/invite/[token]/redeem`, which calls a Postgres function that locks the invite row, checks usage and global limits, increments `sessions_used`, and creates exactly one `demo_sessions` record.
+Opening `/invite/[token]` validates the invite but does not consume it and does not generate a LiveKit token. The invite is consumed only after the call button runs the server-side start action, which calls a Postgres function that locks the invite row, checks usage and global limits, increments `sessions_used`, and creates exactly one `demo_sessions` record.
 
 New invite tokens are stored encrypted server-side so active rows can show a copy action in the sales CRM. Older rows created before encrypted token storage must be replaced once to become copyable.
