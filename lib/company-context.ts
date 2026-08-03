@@ -1,0 +1,267 @@
+import { supabaseAdmin } from "@/lib/supabase";
+
+type CompanyContextInput = {
+  prospectName?: string | null;
+  companyName?: string | null;
+  industry?: string | null;
+};
+
+export type CompanyContext = {
+  companyName: string;
+  prospectName: string;
+  industry: string;
+  greeting: string;
+  role: string;
+  tone: string;
+  commonCallerIntents: string[];
+  goodQuestions: string[];
+  boundaries: string[];
+  source: "built_in" | "generated" | "fallback";
+};
+
+const DEFAULT_TONE = "Warm, calm, polished, concise, and helpful. Ask one question at a time.";
+const CONTEXT_GENERATION_TIMEOUT_MS = Number(process.env.GEMINI_CONTEXT_TIMEOUT_MS || 2500);
+
+const BUILT_IN_PLAYBOOKS: Record<
+  string,
+  Pick<CompanyContext, "commonCallerIntents" | "goodQuestions" | "boundaries">
+> = {
+  hvac: {
+    commonCallerIntents: [
+      "AC or heating repair",
+      "Maintenance plan",
+      "Emergency service",
+      "New installation",
+      "Pricing estimate",
+      "Service availability"
+    ],
+    goodQuestions: [
+      "What type of system are you calling about?",
+      "Is this urgent or routine?",
+      "What city or area are you located in?",
+      "Is this residential or commercial?"
+    ],
+    boundaries: ["Do not diagnose dangerous electrical or gas issues. Collect details and recommend a technician follow-up."]
+  },
+  medical: {
+    commonCallerIntents: ["Book an appointment", "Ask about services", "Insurance or payment questions", "Clinic hours", "Follow-up request"],
+    goodQuestions: [
+      "What type of appointment or service are you looking for?",
+      "Is this a new visit or a follow-up?",
+      "What day or time range works best?",
+      "What is the best number or email for the team to contact you?"
+    ],
+    boundaries: ["Do not provide medical advice, diagnosis, medication guidance, or emergency triage."]
+  },
+  medspa: {
+    commonCallerIntents: ["Treatment inquiry", "Consultation booking", "Pricing range", "Skin concern", "Availability"],
+    goodQuestions: [
+      "Which treatment are you interested in?",
+      "Is this your first time considering that service?",
+      "What result are you hoping for?",
+      "Would you like the team to follow up with availability?"
+    ],
+    boundaries: ["Do not give clinical promises or medical advice. Offer a consultation with the team."]
+  },
+  solar: {
+    commonCallerIntents: ["Solar installation", "Savings estimate", "Battery storage", "Commercial solar", "Financing", "Site visit"],
+    goodQuestions: [
+      "Is this for a home or business?",
+      "Do you already have a recent electricity bill?",
+      "Are you interested in panels only or battery storage too?",
+      "What city or service area is the project in?"
+    ],
+    boundaries: ["Do not promise exact savings without a site and bill review."]
+  },
+  manufacturing: {
+    commonCallerIntents: ["Production inquiry", "Custom order", "Lead time", "Bulk pricing", "Capabilities", "Supplier discussion"],
+    goodQuestions: [
+      "What product or component are you asking about?",
+      "Is this a prototype, one-time order, or recurring requirement?",
+      "Do you have a target quantity or timeline?",
+      "Should the team follow up with technical or purchasing details?"
+    ],
+    boundaries: ["Do not confirm exact pricing, capacity, or lead times without a human follow-up."]
+  },
+  it: {
+    commonCallerIntents: ["Support request", "Software project", "Automation inquiry", "Website or app build", "System integration"],
+    goodQuestions: [
+      "What system or workflow are you trying to improve?",
+      "Is this for internal operations or customer-facing use?",
+      "Do you have a current tool stack in place?",
+      "What timeline are you hoping for?"
+    ],
+    boundaries: ["Do not claim access to client systems or make security guarantees without an assessment."]
+  }
+};
+
+export async function buildCompanyContext(input: CompanyContextInput): Promise<CompanyContext> {
+  const companyName = cleanText(input.companyName, "your company");
+  const prospectName = cleanText(input.prospectName, "there");
+  const industry = cleanText(input.industry, "general business");
+  const cacheKey = contextCacheKey(companyName, industry);
+  const builtIn = builtInPlaybook(industry);
+
+  if (builtIn) {
+    return withCommonContext({ companyName, prospectName, industry, source: "built_in", ...builtIn });
+  }
+
+  const cached = await readCachedContext(cacheKey);
+  if (cached) {
+    return withCommonContext({ companyName, prospectName, industry, source: "generated", ...cached });
+  }
+
+  const generated = await generateIndustryPlaybook({ companyName, industry }).catch(() => null);
+  const playbook = generated || fallbackPlaybook(industry);
+  await writeCachedContext(cacheKey, companyName, industry, playbook).catch(() => undefined);
+
+  return withCommonContext({
+    companyName,
+    prospectName,
+    industry,
+    source: generated ? "generated" : "fallback",
+    ...playbook
+  });
+}
+
+function withCommonContext(
+  context: Pick<CompanyContext, "companyName" | "prospectName" | "industry" | "commonCallerIntents" | "goodQuestions" | "boundaries" | "source">
+): CompanyContext {
+  return {
+    ...context,
+    greeting: `Hello, this is Ava from ${context.companyName}. How may I help you today?`,
+    role: `Receptionist for ${context.companyName}`,
+    tone: DEFAULT_TONE
+  };
+}
+
+function builtInPlaybook(industry: string) {
+  const normalized = normalizeIndustry(industry);
+  if (normalized.includes("hvac")) return BUILT_IN_PLAYBOOKS.hvac;
+  if (normalized.includes("medical") || normalized.includes("hospital") || normalized.includes("clinic")) return BUILT_IN_PLAYBOOKS.medical;
+  if (normalized.includes("medspa") || normalized.includes("spa")) return BUILT_IN_PLAYBOOKS.medspa;
+  if (normalized.includes("solar")) return BUILT_IN_PLAYBOOKS.solar;
+  if (normalized.includes("manufactur")) return BUILT_IN_PLAYBOOKS.manufacturing;
+  if (normalized === "it" || normalized.includes("software") || normalized.includes("technology")) return BUILT_IN_PLAYBOOKS.it;
+  return null;
+}
+
+async function readCachedContext(cacheKey: string) {
+  const { data, error } = await supabaseAdmin()
+    .from("demo_company_context_cache")
+    .select("common_caller_intents,good_questions,boundaries")
+    .eq("cache_key", cacheKey)
+    .maybeSingle();
+
+  if (error || !data) return null;
+
+  return {
+    commonCallerIntents: stringArray(data.common_caller_intents),
+    goodQuestions: stringArray(data.good_questions),
+    boundaries: stringArray(data.boundaries)
+  };
+}
+
+async function writeCachedContext(
+  cacheKey: string,
+  companyName: string,
+  industry: string,
+  playbook: Pick<CompanyContext, "commonCallerIntents" | "goodQuestions" | "boundaries">
+) {
+  await supabaseAdmin().from("demo_company_context_cache").upsert(
+    {
+      cache_key: cacheKey,
+      company_name: companyName,
+      industry,
+      common_caller_intents: playbook.commonCallerIntents,
+      good_questions: playbook.goodQuestions,
+      boundaries: playbook.boundaries,
+      updated_at: new Date().toISOString()
+    },
+    { onConflict: "cache_key" }
+  );
+}
+
+async function generateIndustryPlaybook({ companyName, industry }: { companyName: string; industry: string }) {
+  const apiKey = process.env.GOOGLE_API_KEY;
+  if (!apiKey) return null;
+
+  const model = process.env.GEMINI_CONTEXT_MODEL || process.env.GEMINI_MODEL || "gemini-2.5-flash-lite";
+  const abortSignal = AbortSignal.timeout(
+    Number.isFinite(CONTEXT_GENERATION_TIMEOUT_MS) && CONTEXT_GENERATION_TIMEOUT_MS > 0
+      ? CONTEXT_GENERATION_TIMEOUT_MS
+      : 2500
+  );
+  const prompt = [
+    `Create a compact receptionist playbook for a company named "${companyName}" in this industry/category: "${industry}".`,
+    "Do not browse. Use general business knowledge only.",
+    "Return strict JSON with keys: commonCallerIntents, goodQuestions, boundaries.",
+    "Each key must be an array of 4 to 6 short strings.",
+    "Keep it generic, safe, and useful for a live receptionist call."
+  ].join("\n");
+
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
+    {
+      method: "POST",
+      signal: abortSignal,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.25,
+          maxOutputTokens: 600,
+          responseMimeType: "application/json"
+        }
+      })
+    }
+  );
+
+  if (!response.ok) return null;
+  const payload = (await response.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+  const text = payload.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) return null;
+
+  const parsed = JSON.parse(text) as Partial<Pick<CompanyContext, "commonCallerIntents" | "goodQuestions" | "boundaries">>;
+  return {
+    commonCallerIntents: stringArray(parsed.commonCallerIntents).slice(0, 6),
+    goodQuestions: stringArray(parsed.goodQuestions).slice(0, 6),
+    boundaries: stringArray(parsed.boundaries).slice(0, 6)
+  };
+}
+
+function fallbackPlaybook(industry: string) {
+  return {
+    commonCallerIntents: [
+      `${industry} service inquiry`,
+      "Pricing or estimate request",
+      "Availability question",
+      "Project or appointment request",
+      "Human follow-up"
+    ],
+    goodQuestions: [
+      "What can I help you with today?",
+      "Is this for a new request or an existing one?",
+      "What timeline are you hoping for?",
+      "What is the best way for the team to follow up?"
+    ],
+    boundaries: ["Do not invent exact pricing, availability, legal advice, medical advice, or internal company details."]
+  };
+}
+
+function cleanText(value: string | null | undefined, fallback: string) {
+  const text = typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
+  return text || fallback;
+}
+
+function normalizeIndustry(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function contextCacheKey(companyName: string, industry: string) {
+  return `${normalizeIndustry(companyName)}::${normalizeIndustry(industry)}`;
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0) : [];
+}

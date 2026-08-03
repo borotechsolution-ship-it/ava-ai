@@ -1,0 +1,14 @@
+.next/
+node_modules/
+.env
+.env*.local
+out/
+dist/
+tsconfig.tsbuildinfo
+.next-dev.log
+.next-dev.err.log
+ava-agent.log
+ava-agent.err.log
+deploy-package/
+*.zip
+.vercel/
