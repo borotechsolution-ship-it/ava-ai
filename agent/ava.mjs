@@ -140,7 +140,7 @@ function cartesiaModelName() {
 }
 
 function geminiModelName() {
-  return process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
+  return process.env.GEMINI_MODEL || "gemini-3.1-flash-lite";
 }
 
 function slotEnvName(prefix, slot) {
