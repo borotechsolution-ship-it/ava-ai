@@ -359,11 +359,14 @@ export default defineAgent({
         }
       });
 
-      void session.say(BUSY_MESSAGE, { allowInterruptions: false, addToChatCtx: false })
-        .catch(() => undefined)
-        .finally(() => {
-          void closeRoom(ctx.room.name);
-        });
+      const fallbackSpeech = session.say(BUSY_MESSAGE, {
+        allowInterruptions: false,
+        addToChatCtx: false
+      });
+
+      void fallbackSpeech.waitForPlayout().catch(() => undefined).finally(() => {
+        void closeRoom(ctx.room.name);
+      });
     });
 
     await session.start({
