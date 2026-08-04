@@ -165,7 +165,7 @@ function cancelFillerSpeech(fillerRef) {
 }
 
 function scheduleFillerSpeech(session, turnIndexRef, enabledRef, fillerRef) {
-  if (!booleanEnv("AVA_FILLER_ENABLED", true)) return;
+  if (!booleanEnv("AVA_FILLER_ENABLED", false)) return;
   if (!enabledRef.value) return;
 
   cancelFillerSpeech(fillerRef);
