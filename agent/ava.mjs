@@ -20,10 +20,10 @@ const BUSY_MESSAGE = "Ava is temporarily busy. Please try again in about one min
 const providerCooldowns = new Map();
 const geminiHealthCache = new Map();
 const FILLER_PHRASES = [
-  "Sure, let me check that.",
-  "Of course, one moment.",
-  "Got it, give me a second.",
-  "Let me think through that."
+  "Sure, one second.",
+  "Of course.",
+  "Got it.",
+  "One moment."
 ];
 
 const AVA_BASE_INSTRUCTIONS = `
@@ -147,22 +147,50 @@ function booleanEnv(name, fallback) {
   return !["0", "false", "no", "off"].includes(value.trim().toLowerCase());
 }
 
-function scheduleFillerSpeech(session, turnIndexRef, enabledRef) {
+function cancelFillerSpeech(fillerRef) {
+  if (fillerRef.timer) {
+    clearTimeout(fillerRef.timer);
+    fillerRef.timer = null;
+  }
+
+  if (fillerRef.handle) {
+    try {
+      fillerRef.handle.interrupt(true);
+    } catch {
+      // The handle may already be done; either way, the real answer should continue.
+    }
+
+    fillerRef.handle = null;
+  }
+}
+
+function scheduleFillerSpeech(session, turnIndexRef, enabledRef, fillerRef) {
   if (!booleanEnv("AVA_FILLER_ENABLED", true)) return;
   if (!enabledRef.value) return;
 
-  const delayMs = numberEnv("AVA_FILLER_DELAY_MS", 850);
+  cancelFillerSpeech(fillerRef);
+
+  const delayMs = numberEnv("AVA_FILLER_DELAY_MS", 650);
   const turnIndex = ++turnIndexRef.value;
   const timer = setTimeout(() => {
-    if (turnIndex !== turnIndexRef.value || session.agentState === "speaking") return;
+    fillerRef.timer = null;
+    if (turnIndex !== turnIndexRef.value || session.agentState !== "thinking") return;
 
     const phrase = FILLER_PHRASES[turnIndex % FILLER_PHRASES.length];
-    session.say(phrase, {
+    const handle = session.say(phrase, {
       allowInterruptions: true,
       addToChatCtx: false
     });
+    fillerRef.handle = handle;
+
+    void handle.waitForPlayout().catch(() => undefined).finally(() => {
+      if (fillerRef.handle === handle) {
+        fillerRef.handle = null;
+      }
+    });
   }, delayMs);
 
+  fillerRef.timer = timer;
   timer.unref?.();
 }
 
@@ -415,10 +443,11 @@ export default defineAgent({
 
     const fillerTurnIndex = { value: 0 };
     const fillerEnabled = { value: false };
+    const fillerSpeech = { timer: null, handle: null };
     const agent = voice.Agent.create({
       instructions: instructionsForCompany(companyContext),
       onUserTurnCompleted(ctx) {
-        scheduleFillerSpeech(ctx.session, fillerTurnIndex, fillerEnabled);
+        scheduleFillerSpeech(ctx.session, fillerTurnIndex, fillerEnabled, fillerSpeech);
       }
     });
 
@@ -446,12 +475,14 @@ export default defineAgent({
       }),
       vad: ctx.proc.userData.vad,
       turnDetection: "vad",
-      preemptiveGeneration: true,
       turnHandling: {
         endpointing: {
           mode: "fixed",
-          minDelay: numberEnv("AVA_MIN_ENDPOINTING_MS", 40),
-          maxDelay: numberEnv("AVA_MAX_ENDPOINTING_MS", 300)
+          minDelay: numberEnv("AVA_MIN_ENDPOINTING_MS", 30),
+          maxDelay: numberEnv("AVA_MAX_ENDPOINTING_MS", 220)
+        },
+        interruption: {
+          mode: "vad"
         },
         preemptiveGeneration: {
           enabled: true,
@@ -499,6 +530,19 @@ export default defineAgent({
       void fallbackSpeech.waitForPlayout().catch(() => undefined).finally(() => {
         void closeRoom(ctx.room.name);
       });
+    });
+
+    session.on("agent_state_changed", (event) => {
+      if (event.newState !== "thinking" && !fillerSpeech.handle) {
+        cancelFillerSpeech(fillerSpeech);
+      }
+    });
+
+    session.on("speech_created", (event) => {
+      if (event.source === "generate_reply") {
+        fillerTurnIndex.value++;
+        cancelFillerSpeech(fillerSpeech);
+      }
     });
 
     await session.start({
