@@ -479,6 +479,7 @@ function providerName(source, error) {
 cli.runApp(new WorkerOptions({
   agent: fileURLToPath(import.meta.url),
   agentName: "ava",
+  host: "127.0.0.1",
   initializeProcessTimeout: 120_000,
   numIdleProcesses: numberEnv("AVA_IDLE_WORKERS", 3),
   loadFunc: async () => 0
