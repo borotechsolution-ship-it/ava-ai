@@ -1,14 +1,16 @@
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { BrandNav } from "@/components/BrandNav";
 import { PasswordInput } from "@/components/PasswordInput";
 import { authenticateSalesAccount, setSalesCookie } from "@/lib/sales-auth";
+import { requestIp } from "@/lib/rate-limit";
 
 async function login(formData: FormData) {
   "use server";
 
   const loginSlug = String(formData.get("loginSlug") || "");
   const password = String(formData.get("password") || "");
-  const account = await authenticateSalesAccount(loginSlug, password);
+  const account = await authenticateSalesAccount(loginSlug, password, requestIp(await headers()));
   if (!account) {
     redirect("/sales/login?error=1");
   }

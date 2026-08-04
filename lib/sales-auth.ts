@@ -1,14 +1,15 @@
 import { cookies } from "next/headers";
-import { hmacSha256, safeEqual, sha256 } from "@/lib/crypto";
-import { config } from "@/lib/config";
+import { hmacSha256, safeEqual, verifyPasswordHash } from "@/lib/crypto";
 import { supabaseAdmin } from "@/lib/supabase";
 import type { SalesAccount } from "@/lib/types";
 
 const COOKIE = "sales_account_auth";
+const LOGIN_WINDOW_MINUTES = 15;
+const LOGIN_FAILURE_LIMIT = 5;
 
 function authSecret() {
-  const secret = process.env.SALES_AUTH_SECRET || process.env.INVITE_TOKEN_ENCRYPTION_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || config.salesPassword;
-  if (!secret) throw new Error("Missing SALES_AUTH_SECRET or SUPABASE_SERVICE_ROLE_KEY");
+  const secret = process.env.SALES_AUTH_SECRET;
+  if (!secret) throw new Error("Missing SALES_AUTH_SECRET");
   return secret;
 }
 
@@ -32,14 +33,51 @@ async function findSalesAccount(loginSlug: string) {
   return data as SalesAccount | null;
 }
 
-export async function authenticateSalesAccount(loginSlug: string, password: string) {
+async function isLoginLocked(loginSlug: string, ipAddress: string) {
+  const since = new Date(Date.now() - LOGIN_WINDOW_MINUTES * 60 * 1000).toISOString();
+  const { count, error } = await supabaseAdmin()
+    .from("sales_login_attempts")
+    .select("id", { count: "exact", head: true })
+    .eq("login_slug", loginSlug)
+    .eq("ip_address", ipAddress)
+    .eq("success", false)
+    .gte("created_at", since);
+
+  if (error) {
+    console.error("Could not check sales login attempts", error);
+    return false;
+  }
+
+  return (count || 0) >= LOGIN_FAILURE_LIMIT;
+}
+
+async function recordLoginAttempt(loginSlug: string, ipAddress: string, success: boolean) {
+  const { error } = await supabaseAdmin()
+    .from("sales_login_attempts")
+    .insert({ login_slug: loginSlug, ip_address: ipAddress, success });
+
+  if (error) {
+    console.error("Could not record sales login attempt", error);
+  }
+}
+
+export async function authenticateSalesAccount(loginSlug: string, password: string, ipAddress = "unknown") {
   const cleanSlug = loginSlug.trim().toLowerCase();
+  if (!cleanSlug) return null;
+  if (await isLoginLocked(cleanSlug, ipAddress)) return null;
+
   const account = cleanSlug ? await findSalesAccount(cleanSlug) : null;
-  if (!account) return null;
+  if (!account) {
+    await recordLoginAttempt(cleanSlug, ipAddress, false);
+    return null;
+  }
 
-  const passwordHash = sha256(password);
-  if (!safeEqual(passwordHash, account.password_hash)) return null;
+  if (!verifyPasswordHash(password, account.password_hash)) {
+    await recordLoginAttempt(cleanSlug, ipAddress, false);
+    return null;
+  }
 
+  await recordLoginAttempt(cleanSlug, ipAddress, true);
   return account;
 }
 

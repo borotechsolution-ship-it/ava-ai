@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, timingSafeEqual } from "crypto";
+import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, scryptSync, timingSafeEqual } from "crypto";
 
 export function randomToken(bytes = 32): string {
   return randomBytes(bytes).toString("base64url");
@@ -6,6 +6,39 @@ export function randomToken(bytes = 32): string {
 
 export function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
+}
+
+export function scryptPassword(password: string): string {
+  const salt = randomBytes(16).toString("base64url");
+  const key = scryptSync(password, salt, 64, {
+    N: 16384,
+    r: 8,
+    p: 1,
+    maxmem: 64 * 1024 * 1024
+  }).toString("base64url");
+
+  return `scrypt$16384$8$1$${salt}$${key}`;
+}
+
+export function verifyPasswordHash(password: string, passwordHash: string): boolean {
+  if (passwordHash.startsWith("scrypt$")) {
+    const [, nRaw, rRaw, pRaw, salt, expected] = passwordHash.split("$");
+    const N = Number(nRaw);
+    const r = Number(rRaw);
+    const p = Number(pRaw);
+    if (!Number.isFinite(N) || !Number.isFinite(r) || !Number.isFinite(p) || !salt || !expected) return false;
+
+    const actual = scryptSync(password, salt, 64, {
+      N,
+      r,
+      p,
+      maxmem: 64 * 1024 * 1024
+    }).toString("base64url");
+
+    return safeEqual(actual, expected);
+  }
+
+  return /^[a-f0-9]{64}$/i.test(passwordHash) && safeEqual(sha256(password), passwordHash);
 }
 
 export function hmacSha256(value: string, secret: string): string {

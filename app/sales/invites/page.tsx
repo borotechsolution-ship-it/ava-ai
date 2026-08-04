@@ -1,10 +1,12 @@
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import { createInviteAction, replaceInviteAction, revokeInviteAction } from "@/app/sales/invites/actions";
 import { BrandNav } from "@/components/BrandNav";
 import { CopyLink } from "@/components/CopyLink";
 import { StatsCard } from "@/components/StatsCard";
 import { config } from "@/lib/config";
 import { InviteWithLatestSession, listInvites } from "@/lib/invites";
+import { LATEST_INVITE_COOKIE } from "@/lib/sales-flash";
 import { getSalesAccount } from "@/lib/sales-auth";
 
 function displayStatus(invite: InviteWithLatestSession) {
@@ -20,8 +22,10 @@ export default async function SalesInvites({ searchParams }: { searchParams: Pro
   if (!salesAccount) redirect("/sales/login");
 
   const resolvedSearchParams = await searchParams;
+  const cookieStore = await cookies();
+  const latestInviteUrl = cookieStore.get(LATEST_INVITE_COOKIE)?.value || "";
   const currentPage = Math.max(1, Number(resolvedSearchParams.page || 1));
-  const inviteResult = await listInvites(salesAccount.id, currentPage, resolvedSearchParams.created).catch((error: unknown) => {
+  const inviteResult = await listInvites(salesAccount.id, currentPage).catch((error: unknown) => {
     console.error("Failed to load sales invites", error);
     return {
       invites: [],
@@ -198,12 +202,12 @@ export default async function SalesInvites({ searchParams }: { searchParams: Pro
                 <p>Max 3 sessions / 72h</p>
               </div>
             </div>
-            {resolvedSearchParams.created ? (
+            {latestInviteUrl ? (
               <div className="url-preview">
                 <span>Latest invitation URL</span>
                 <p>Copy this link now. If you clicked Replace, the old invite was revoked and this is the fresh link.</p>
-                <code>{resolvedSearchParams.created}</code>
-                <CopyLink value={resolvedSearchParams.created} />
+                <code>{latestInviteUrl}</code>
+                <CopyLink value={latestInviteUrl} />
               </div>
             ) : null}
             <form action={createInviteAction} className="sidebar-form">
