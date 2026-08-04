@@ -26,7 +26,7 @@ insert into sales_accounts(login_slug, display_name, password_hash, gemini_key_s
 values (
   'sales-a',
   'Bret',
-  crypt('Bret@0011', gen_salt('bf', 12)),
+  extensions.crypt('Bret@0011', extensions.gen_salt('bf', 12)),
   'a'
 );
 ```
@@ -45,9 +45,9 @@ Create each account directly in Supabase SQL Editor:
 ```sql
 insert into sales_accounts(login_slug, display_name, password_hash, gemini_key_slot)
 values
-  ('sales-a', 'Bret', crypt('Bret@0011', gen_salt('bf', 12)), 'a'),
-  ('sales-b', 'Sales B', crypt('SalesBPasswordHere', gen_salt('bf', 12)), 'b'),
-  ('sales-c', 'Sales C', crypt('SalesCPasswordHere', gen_salt('bf', 12)), 'c');
+  ('sales-a', 'Bret', extensions.crypt('Bret@0011', extensions.gen_salt('bf', 12)), 'a'),
+  ('sales-b', 'Sales B', extensions.crypt('SalesBPasswordHere', extensions.gen_salt('bf', 12)), 'b'),
+  ('sales-c', 'Sales C', extensions.crypt('SalesCPasswordHere', extensions.gen_salt('bf', 12)), 'c');
 ```
 
 The database limit is 10 total rows in `sales_accounts`, but our intended setup is only `sales-a`, `sales-b`, and `sales-c`.
@@ -59,7 +59,7 @@ If Bret needs a new password:
 ```sql
 update sales_accounts
 set
-  password_hash = crypt('NewPasswordHere', gen_salt('bf', 12)),
+  password_hash = extensions.crypt('NewPasswordHere', extensions.gen_salt('bf', 12)),
   updated_at = now()
 where login_slug = 'sales-a';
 ```
@@ -136,7 +136,7 @@ Cartesia is global for all salespeople. The app uses `CARTESIA_API_KEY_PRIMARY` 
 
 - Do not store plain passwords in Supabase.
 - `password_hash` is not the real password. It is a one-way `scrypt$...` or Supabase `crypt()` hash.
-- Old 64-character SHA-256 hashes are no longer accepted by the app. Update every real sales account to `crypt('password', gen_salt('bf', 12))` or `scrypt$...` before handoff.
+- Old 64-character SHA-256 hashes are no longer accepted by the app. Update every real sales account to `extensions.crypt('password', extensions.gen_salt('bf', 12))` or `scrypt$...` before handoff.
 - If you want Supabase-only password updates, run `supabase/migrations/202608040003_support_pgcrypt_sales_passwords.sql` and use the SQL examples above.
 - `SALES_AUTH_SECRET` must stay private in `.env` and in deployment environment variables. It must be separate from `SUPABASE_SERVICE_ROLE_KEY` and `INVITE_TOKEN_ENCRYPTION_SECRET`.
 - After 5 failed login attempts from the same IP against the same sales ID within 15 minutes, the account/IP pair is temporarily locked out.

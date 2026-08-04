@@ -24,7 +24,7 @@ as $$
     from sales_accounts
     where login_slug = lower(trim(p_login_slug))
       and active = true
-      and password_hash = crypt(p_password, password_hash)
+      and password_hash = extensions.crypt(p_password, password_hash)
   );
 $$;
 
