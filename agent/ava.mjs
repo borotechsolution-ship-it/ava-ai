@@ -308,6 +308,10 @@ function errorMessage(error) {
   return String(error);
 }
 
+function isParticipantWaitDisconnect(error) {
+  return errorMessage(error).toLowerCase().includes("room disconnected while waiting for participant");
+}
+
 function isRateLimitError(error) {
   const message = errorMessage(error).toLowerCase();
   return message.includes("429") || message.includes("rate limit") || message.includes("resource_exhausted") || message.includes("quota");
@@ -377,7 +381,19 @@ export default defineAgent({
   },
   entry: async (ctx) => {
     await ctx.connect();
-    await ctx.waitForParticipant();
+    const participant = await ctx.waitForParticipant().catch((error) => {
+      if (isParticipantWaitDisconnect(error)) {
+        console.warn("Ava job ended before a participant joined", {
+          roomName: ctx.room?.name,
+          reason: "room_disconnected_before_participant"
+        });
+        return null;
+      }
+
+      throw error;
+    });
+
+    if (!participant) return;
 
     const metadata = parseDispatchMetadata(ctx);
     const companyContext = companyContextFromMetadata(metadata);
