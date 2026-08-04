@@ -19,6 +19,12 @@ loadEnvConfig(process.cwd());
 const BUSY_MESSAGE = "Ava is temporarily busy. Please try again in about one minute.";
 const providerCooldowns = new Map();
 const geminiHealthCache = new Map();
+const FILLER_PHRASES = [
+  "Sure, let me check that.",
+  "Of course, one moment.",
+  "Got it, give me a second.",
+  "Let me think through that."
+];
 
 const AVA_BASE_INSTRUCTIONS = `
 You are Ava, a premium AI receptionist.
@@ -133,6 +139,30 @@ function optionalEnv(name) {
 function numberEnv(name, fallback) {
   const value = Number(process.env[name]);
   return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function booleanEnv(name, fallback) {
+  const value = process.env[name];
+  if (!value) return fallback;
+  return !["0", "false", "no", "off"].includes(value.trim().toLowerCase());
+}
+
+function scheduleFillerSpeech(session, turnIndexRef) {
+  if (!booleanEnv("AVA_FILLER_ENABLED", true)) return;
+
+  const delayMs = numberEnv("AVA_FILLER_DELAY_MS", 850);
+  const turnIndex = ++turnIndexRef.value;
+  const timer = setTimeout(() => {
+    if (turnIndex !== turnIndexRef.value || session.agentState === "speaking") return;
+
+    const phrase = FILLER_PHRASES[turnIndex % FILLER_PHRASES.length];
+    session.say(phrase, {
+      allowInterruptions: true,
+      addToChatCtx: false
+    });
+  }, delayMs);
+
+  timer.unref?.();
 }
 
 function cartesiaModelName() {
@@ -366,8 +396,12 @@ export default defineAgent({
       }
     });
 
-    const agent = new voice.Agent({
-      instructions: instructionsForCompany(companyContext)
+    const fillerTurnIndex = { value: 0 };
+    const agent = voice.Agent.create({
+      instructions: instructionsForCompany(companyContext),
+      onUserTurnCompleted(ctx) {
+        scheduleFillerSpeech(ctx.session, fillerTurnIndex);
+      }
     });
 
     const session = new voice.AgentSession({
