@@ -61,6 +61,28 @@ async function recordLoginAttempt(loginSlug: string, ipAddress: string, success:
   }
 }
 
+async function verifySalesPassword(account: SalesAccount, password: string) {
+  if (account.password_hash.startsWith("scrypt$")) {
+    return verifyPasswordHash(password, account.password_hash);
+  }
+
+  if (account.password_hash.startsWith("$2")) {
+    const { data, error } = await supabaseAdmin().rpc("verify_sales_password", {
+      p_login_slug: account.login_slug,
+      p_password: password
+    });
+
+    if (error) {
+      console.error("Could not verify sales password", error);
+      return false;
+    }
+
+    return data === true;
+  }
+
+  return false;
+}
+
 export async function authenticateSalesAccount(loginSlug: string, password: string, ipAddress = "unknown") {
   const cleanSlug = loginSlug.trim().toLowerCase();
   if (!cleanSlug) return null;
@@ -72,7 +94,7 @@ export async function authenticateSalesAccount(loginSlug: string, password: stri
     return null;
   }
 
-  if (!verifyPasswordHash(password, account.password_hash)) {
+  if (!(await verifySalesPassword(account, password))) {
     await recordLoginAttempt(cleanSlug, ipAddress, false);
     return null;
   }
