@@ -147,8 +147,9 @@ function booleanEnv(name, fallback) {
   return !["0", "false", "no", "off"].includes(value.trim().toLowerCase());
 }
 
-function scheduleFillerSpeech(session, turnIndexRef) {
+function scheduleFillerSpeech(session, turnIndexRef, enabledRef) {
   if (!booleanEnv("AVA_FILLER_ENABLED", true)) return;
+  if (!enabledRef.value) return;
 
   const delayMs = numberEnv("AVA_FILLER_DELAY_MS", 850);
   const turnIndex = ++turnIndexRef.value;
@@ -397,10 +398,11 @@ export default defineAgent({
     });
 
     const fillerTurnIndex = { value: 0 };
+    const fillerEnabled = { value: false };
     const agent = voice.Agent.create({
       instructions: instructionsForCompany(companyContext),
       onUserTurnCompleted(ctx) {
-        scheduleFillerSpeech(ctx.session, fillerTurnIndex);
+        scheduleFillerSpeech(ctx.session, fillerTurnIndex, fillerEnabled);
       }
     });
 
@@ -493,6 +495,7 @@ export default defineAgent({
       addToChatCtx: true
     });
     await greeting.waitForPlayout();
+    fillerEnabled.value = true;
 
     const roomName = ctx.room.name;
     setTimeout(() => {
