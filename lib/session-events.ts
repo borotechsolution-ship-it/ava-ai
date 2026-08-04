@@ -62,7 +62,10 @@ export async function startSessionClock() {
 
 export async function dispatchAvaForCurrentSession() {
   const sessionId = await sessionIdFromCookie();
-  if (!sessionId) return false;
+  if (!sessionId) {
+    console.error("Ava dispatch blocked: missing or expired demo session cookie");
+    return false;
+  }
 
   const { data: session, error: sessionError } = await supabaseAdmin()
     .from("demo_sessions")
@@ -71,13 +74,34 @@ export async function dispatchAvaForCurrentSession() {
     .in("status", ["created", "started"])
     .maybeSingle();
 
-  if (sessionError || !session?.livekit_room_name) return false;
+  if (sessionError) {
+    console.error("Ava dispatch blocked: could not load demo session", {
+      sessionId,
+      message: sessionError.message,
+      code: sessionError.code
+    });
+    return false;
+  }
 
-  const { data: invite } = await supabaseAdmin()
+  if (!session?.livekit_room_name) {
+    console.error("Ava dispatch blocked: no active LiveKit room for session", { sessionId });
+    return false;
+  }
+
+  const { data: invite, error: inviteError } = await supabaseAdmin()
     .from("demo_invites")
     .select("id,sales_account_id,prospect_name,company_name,industry")
     .eq("id", session.invite_id)
     .maybeSingle();
+
+  if (inviteError) {
+    console.error("Ava dispatch continuing without invite metadata", {
+      sessionId,
+      inviteId: session.invite_id,
+      message: inviteError.message,
+      code: inviteError.code
+    });
+  }
 
   const { data: salesAccount } = invite?.sales_account_id
     ? await supabaseAdmin()
@@ -91,6 +115,13 @@ export async function dispatchAvaForCurrentSession() {
     prospectName: invite?.prospect_name,
     companyName: invite?.company_name,
     industry: invite?.industry
+  }).catch((error) => {
+    console.error("Ava dispatch continuing without generated company context", {
+      sessionId,
+      inviteId: invite?.id,
+      message: error instanceof Error ? error.message : String(error)
+    });
+    return null;
   });
 
   await dispatchAvaAgent(session.livekit_room_name as string, {
@@ -102,6 +133,14 @@ export async function dispatchAvaForCurrentSession() {
     sessionId: session.id,
     geminiKeySlot: salesAccount?.gemini_key_slot,
     companyContext
+  });
+
+  console.log("Ava dispatch created", {
+    sessionId: session.id,
+    roomName: session.livekit_room_name,
+    inviteId: invite?.id || null,
+    salesAccountId: invite?.sales_account_id || null,
+    geminiKeySlot: salesAccount?.gemini_key_slot || null
   });
 
   return true;

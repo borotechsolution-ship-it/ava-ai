@@ -17,14 +17,14 @@
     "@livekit/agents-plugin-cartesia": "^1.5.5",
     "@livekit/agents-plugin-deepgram": "^1.5.5",
     "@livekit/agents-plugin-google": "^1.5.5",
-    "@livekit/agents-plugin-livekit": "^1.5.5",
     "@livekit/agents-plugin-silero": "^1.5.5",
     "@supabase/supabase-js": "^2.45.4",
     "gsap": "^3.15.0",
     "livekit-client": "^2.21.0",
-    "next": "^16.2.12",
+    "next": "^16.3.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "sharp": "^0.35.3",
     "zod": "^4.1.13"
   },
   "devDependencies": {

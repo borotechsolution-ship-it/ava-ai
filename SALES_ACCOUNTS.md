@@ -144,7 +144,8 @@ Cartesia is global for all salespeople. The app uses `CARTESIA_API_KEY_PRIMARY` 
 
 - Do not store plain passwords in Supabase.
 - `password_hash` is not the real password. It is a one-way `scrypt` hash.
-- Old 64-character SHA-256 hashes still verify for migration, but update every real sales account to `scrypt` before handoff.
+- Old 64-character SHA-256 hashes are no longer accepted by the app. Update every real sales account to `scrypt` before deploying the hardened auth code.
+- Run `supabase/migrations/202608040002_require_scrypt_sales_passwords.sql` only after every sales account has a `scrypt$...` password hash.
 - `SALES_AUTH_SECRET` must stay private in `.env` and in deployment environment variables. It must be separate from `SUPABASE_SERVICE_ROLE_KEY` and `INVITE_TOKEN_ENCRYPTION_SECRET`.
 - After 5 failed login attempts from the same IP against the same sales ID within 15 minutes, the account/IP pair is temporarily locked out.
 - Salespeople do not need their Supabase `id`.

@@ -38,7 +38,7 @@ export function verifyPasswordHash(password: string, passwordHash: string): bool
     return safeEqual(actual, expected);
   }
 
-  return /^[a-f0-9]{64}$/i.test(passwordHash) && safeEqual(sha256(password), passwordHash);
+  return false;
 }
 
 export function hmacSha256(value: string, secret: string): string {

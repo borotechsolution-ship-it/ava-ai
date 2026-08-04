@@ -19,6 +19,7 @@ loadEnvConfig(process.cwd());
 const BUSY_MESSAGE = "Ava is temporarily busy. Please try again in about one minute.";
 const providerCooldowns = new Map();
 const geminiHealthCache = new Map();
+const CARTESIA_PAYMENT_COOLDOWN_SECONDS = 60 * 60;
 const FILLER_PHRASES = [
   "Sure, one second.",
   "Of course.",
@@ -345,6 +346,11 @@ function isRateLimitError(error) {
   return message.includes("429") || message.includes("rate limit") || message.includes("resource_exhausted") || message.includes("quota");
 }
 
+function isPaymentRequiredError(error) {
+  const message = errorMessage(error).toLowerCase();
+  return message.includes("402") || message.includes("payment required") || message.includes("credit limit") || message.includes("out of credits");
+}
+
 function retryAfterSeconds(error) {
   const message = errorMessage(error);
   const retryDelay = message.match(/retryDelay["']?\s*:\s*["']?(\d+(?:\.\d+)?)s/i);
@@ -399,8 +405,17 @@ function liveKitHost() {
 async function closeRoom(roomName) {
   const rooms = new RoomServiceClient(liveKitHost(), requiredEnv("LIVEKIT_API_KEY"), requiredEnv("LIVEKIT_API_SECRET"));
   await rooms.deleteRoom(roomName).catch((error) => {
+    if (isLiveKitRoomNotFound(error)) return;
     console.error("Failed to close demo room", error);
   });
+}
+
+function isLiveKitRoomNotFound(error) {
+  return errorMessage(error).toLowerCase().includes("not found") || errorMessage(error).toLowerCase().includes("does not exist");
+}
+
+function maxConcurrentJobs() {
+  return Math.max(1, numberEnv("AVA_MAX_CONCURRENT_JOBS", 3));
 }
 
 export default defineAgent({
@@ -497,13 +512,14 @@ export default defineAgent({
       if (handledProviderFailure) return;
       const provider = providerName(event?.source, event?.error);
       const activeSlot = provider === "gemini" ? geminiKey.slot : provider === "cartesia" ? cartesiaKey.slot : provider;
-      const retrySeconds = retryAfterSeconds(event?.error) || 60;
+      const paymentRequired = isPaymentRequiredError(event?.error);
+      const retrySeconds = paymentRequired ? CARTESIA_PAYMENT_COOLDOWN_SECONDS : retryAfterSeconds(event?.error) || 60;
       const rateLimited = isRateLimitError(event?.error);
       handledProviderFailure = true;
 
       if (provider === "gemini" && activeSlot) {
         setSlotCooldown(provider, activeSlot, retrySeconds);
-      } else if (rateLimited && activeSlot) {
+      } else if ((rateLimited || paymentRequired) && activeSlot) {
         setSlotCooldown(provider, activeSlot, retrySeconds);
       }
 
@@ -512,7 +528,7 @@ export default defineAgent({
         keySlot: activeSlot,
         roomName: ctx.room.name,
         eventType: "provider_error",
-        errorType: rateLimited ? "rate_limited" : event?.error?.type || "provider_error",
+        errorType: paymentRequired ? "payment_required" : rateLimited ? "rate_limited" : event?.error?.type || "provider_error",
         retryAfterSeconds: retrySeconds,
         message: errorMessage(event?.error),
         detail: {
@@ -579,5 +595,6 @@ cli.runApp(new WorkerOptions({
   host: "127.0.0.1",
   initializeProcessTimeout: 120_000,
   numIdleProcesses: numberEnv("AVA_IDLE_WORKERS", 3),
-  loadFunc: async () => 0
+  loadThreshold: Math.min(0.95, Math.max(0.1, numberEnv("AVA_LOAD_THRESHOLD", 0.8))),
+  loadFunc: async (worker) => Math.min(1, worker.activeJobs.length / maxConcurrentJobs())
 }));

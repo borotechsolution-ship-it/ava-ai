@@ -68,10 +68,16 @@ export async function endLiveKitRoom(roomName: string) {
   );
 
   await rooms.deleteRoom(roomName).catch((error) => {
+    if (isLiveKitRoomNotFound(error)) return;
     console.error("Failed to delete LiveKit room", error);
   });
 }
 
 function normalizeLiveKitHost(url: string) {
   return url.replace(/^wss:/, "https:").replace(/^ws:/, "http:");
+}
+
+function isLiveKitRoomNotFound(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || "");
+  return message.toLowerCase().includes("not found") || message.toLowerCase().includes("does not exist");
 }
