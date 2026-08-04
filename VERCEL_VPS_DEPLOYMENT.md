@@ -1,6 +1,6 @@
-# Vercel + VPS Deployment Guide
+# Vercel Web + VPS Worker Deployment Guide
 
-Use this split:
+Use this split for production:
 
 ```text
 ava.borotechsolution.com -> Vercel web app
@@ -9,7 +9,7 @@ Supabase -> database
 LiveKit Cloud -> audio rooms
 ```
 
-The VPS does not need BoroTech DNS or SSL. It only needs outbound internet access.
+The VPS does not need BoroTech DNS, Nginx, SSL, or an exposed web port for Ava. It only needs outbound internet access.
 
 ## 1. Push This Repo To GitHub
 
@@ -51,27 +51,34 @@ Value: cname.vercel-dns.com
 
 Wait for Vercel to show the domain as verified.
 
-## 4. Run Ava Worker On VPS
+## 4. Run Ava Worker Only On VPS
 
-On the VPS, clone the same GitHub repo and create a real `.env` file with the same provider secrets.
+On the VPS, keep the web service disabled and run only the Ava worker service.
 
-The worker command is:
+Use the prepared worker env file:
+
+```text
+nano /etc/ava-ai/worker.env
+```
+
+Do not place these secrets in GitHub. After saving the env file, validate without printing secret values, then start only the worker service.
+
+If systemd services are already installed, the intended launch is:
+
+```text
+sudo systemctl daemon-reload
+sudo systemctl enable ava-ai-worker
+sudo systemctl start ava-ai-worker
+sudo systemctl status ava-ai-worker
+```
+
+The worker must stay online. It connects outward to LiveKit Cloud and waits for dispatches from the Vercel web app. It does not need inbound traffic from the public internet.
+
+If PM2 is used instead of systemd, the worker command is still:
 
 ```text
 npm run agent:start
 ```
-
-Run it with a process manager such as PM2:
-
-```text
-npm install
-npm run build
-npm install -g pm2
-pm2 start npm --name borotech-ava-worker -- run agent:start
-pm2 save
-```
-
-The worker must stay online. It connects to LiveKit and waits for dispatches from the Vercel web app.
 
 ## 5. Required Environment Variables
 
@@ -90,7 +97,7 @@ GEMINI_*
 GOOGLE_API_KEY
 ```
 
-The VPS worker needs:
+The VPS worker needs `/etc/ava-ai/worker.env` with:
 
 ```text
 SUPABASE_URL
@@ -124,6 +131,14 @@ AVA_PREEMPTIVE_TTS
 
 It is okay if both Vercel and VPS have the full `.env` set, but never commit it.
 
+For this split deployment, Vercel should keep:
+
+```text
+NEXT_PUBLIC_APP_URL=https://ava.borotechsolution.com
+```
+
+The VPS worker does not need `NEXT_PUBLIC_APP_URL` because it is not serving the website.
+
 ## 6. Smoke Test
 
 1. Open `https://ava.borotechsolution.com/sales/login`.
@@ -133,8 +148,10 @@ It is okay if both Vercel and VPS have the full `.env` set, but never commit it.
 5. Start the call.
 6. Confirm Ava joins and speaks.
 
-If the invite page works but Ava does not join, check the VPS PM2 logs first:
+If the invite page works but Ava does not join, check the VPS worker logs first:
 
 ```text
-pm2 logs borotech-ava-worker
+sudo journalctl -u ava-ai-worker -f
 ```
+
+If the worker is healthy, stop the local worker on your PC and run the smoke test again. Ava should still speak. That confirms production no longer depends on your machine.
