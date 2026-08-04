@@ -63,6 +63,31 @@ const BUILT_IN_PLAYBOOKS: Record<
     ],
     boundaries: ["Do not give clinical promises or medical advice. Offer a consultation with the team."]
   },
+  dental: {
+    commonCallerIntents: [
+      "New-patient exam, routine checkup, cleaning, or family appointment",
+      "Emergency dental concern such as severe pain, swelling, broken tooth, lost crown, or knocked-out tooth",
+      "Implant, Invisalign, whitening, denture, or cosmetic consultation",
+      "Insurance, self-pay estimate, financing, cancellation, late arrival, or clinic policy question",
+      "Existing-patient appointment change, post-treatment concern, records request, or human callback"
+    ],
+    goodQuestions: [
+      "Are you a new or existing patient?",
+      "What is the reason for the visit in your own words?",
+      "Are you having severe pain, swelling, bleeding, trouble breathing or swallowing, or a knocked-out permanent tooth?",
+      "Is this for an adult or a child, and will a parent or guardian attend if the patient is a minor?",
+      "What day or time range works best, and do you have a preferred dentist or hygienist?",
+      "Would you like the team to review insurance or self-pay options before confirming details?"
+    ],
+    boundaries: [
+      "Ava schedules and informs only. Do not diagnose, prescribe, recommend medication, give dosage guidance, or decide what treatment is clinically necessary.",
+      "For trouble breathing or swallowing, uncontrolled bleeding, severe trauma, loss of consciousness, or life-threatening symptoms, tell the caller to call emergency services or go to the nearest emergency department.",
+      "For spreading facial or neck swelling, fever with swelling, knocked-out permanent tooth, severe post-treatment issue, or medication request, stop routine booking and route to clinical staff or urgent callback.",
+      "New dental patients usually need an exam before cleaning. Same-day cleaning or treatment is never guaranteed and depends on clinical evaluation and availability.",
+      "Insurance and prices are estimates only. Do not guarantee coverage, copays, deductibles, claim payment, exact final cost, or that every plan is accepted.",
+      "Do not collect SSN, full payment-card details, detailed medical history, images, or private records by voice. Use secure forms and transfer when unsure."
+    ]
+  },
   solar: {
     commonCallerIntents: ["Solar installation", "Savings estimate", "Battery storage", "Commercial solar", "Financing", "Site visit"],
     goodQuestions: [
@@ -138,6 +163,14 @@ function withCommonContext(
 function builtInPlaybook(industry: string) {
   const normalized = normalizeIndustry(industry);
   if (normalized.includes("hvac")) return BUILT_IN_PLAYBOOKS.hvac;
+  if (
+    normalized.includes("dental") ||
+    normalized.includes("dentist") ||
+    normalized.includes("orthodont") ||
+    normalized.includes("oral surgery")
+  ) {
+    return BUILT_IN_PLAYBOOKS.dental;
+  }
   if (normalized.includes("medical") || normalized.includes("hospital") || normalized.includes("clinic")) return BUILT_IN_PLAYBOOKS.medical;
   if (normalized.includes("medspa") || normalized.includes("spa")) return BUILT_IN_PLAYBOOKS.medspa;
   if (normalized.includes("solar")) return BUILT_IN_PLAYBOOKS.solar;
