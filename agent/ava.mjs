@@ -19,6 +19,7 @@ loadEnvConfig(process.cwd());
 const BUSY_MESSAGE = "Ava is temporarily busy. Please try again in about one minute.";
 const providerCooldowns = new Map();
 const geminiHealthCache = new Map();
+const cartesiaHealthCache = new Map();
 const CARTESIA_PAYMENT_COOLDOWN_SECONDS = 60 * 60;
 const FILLER_PHRASES = [
   "Sure, one second.",
@@ -312,19 +313,70 @@ async function isGeminiKeyHealthy(slot, apiKey) {
   }
 }
 
-function selectCartesiaKey() {
+async function selectCartesiaKey() {
   const primaryKey = optionalEnv("CARTESIA_API_KEY_PRIMARY") || optionalEnv("CARTESIA_API_KEY");
   const backupKey = optionalEnv("CARTESIA_API_KEY_GLOBAL_BACKUP");
+  const candidates = [];
 
   if (primaryKey && !isSlotCoolingDown("cartesia", "primary")) {
-    return { apiKey: primaryKey, slot: "primary", role: "primary" };
+    candidates.push({ apiKey: primaryKey, slot: "primary", role: "primary" });
   }
 
   if (backupKey && !isSlotCoolingDown("cartesia", "global_backup")) {
-    return { apiKey: backupKey, slot: "global_backup", role: "backup" };
+    candidates.push({ apiKey: backupKey, slot: "global_backup", role: "backup" });
+  }
+
+  if (candidates.length) {
+    const winner = await firstHealthyCartesiaKey(candidates);
+    if (winner) return winner;
   }
 
   return { apiKey: requiredEnv("CARTESIA_API_KEY"), slot: "primary", role: "default" };
+}
+
+async function firstHealthyCartesiaKey(candidates) {
+  for (const candidate of candidates) {
+    const ok = await isCartesiaKeyHealthy(candidate.slot, candidate.apiKey);
+    if (ok) return candidate;
+    setSlotCooldown("cartesia", candidate.slot, CARTESIA_PAYMENT_COOLDOWN_SECONDS);
+  }
+
+  return null;
+}
+
+async function isCartesiaKeyHealthy(slot, apiKey) {
+  const cacheKey = `${slot}:${cartesiaModelName()}`;
+  const cached = cartesiaHealthCache.get(cacheKey);
+  if (cached && cached.until > Date.now()) return cached.ok;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), numberEnv("CARTESIA_KEY_HEALTH_TIMEOUT_MS", 2500));
+  const checkedAt = Date.now();
+
+  try {
+    const response = await fetch(`${optionalEnv("CARTESIA_BASE_URL") || "https://api.cartesia.ai"}/voices?limit=1`, {
+      method: "GET",
+      signal: controller.signal,
+      headers: {
+        "X-API-Key": apiKey,
+        "Cartesia-Version": optionalEnv("CARTESIA_VERSION") || "2025-04-16"
+      }
+    });
+    const ok = response.ok;
+    cartesiaHealthCache.set(cacheKey, {
+      ok,
+      until: checkedAt + numberEnv(ok ? "CARTESIA_KEY_HEALTH_TTL_MS" : "CARTESIA_KEY_FAILURE_TTL_MS", ok ? 300_000 : 3_600_000)
+    });
+    return ok;
+  } catch {
+    cartesiaHealthCache.set(cacheKey, {
+      ok: false,
+      until: checkedAt + numberEnv("CARTESIA_KEY_FAILURE_TTL_MS", 120_000)
+    });
+    return false;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function errorMessage(error) {
@@ -441,7 +493,7 @@ export default defineAgent({
     const metadata = parseDispatchMetadata(ctx);
     const companyContext = companyContextFromMetadata(metadata);
     const geminiKey = await selectGeminiKey(metadata);
-    const cartesiaKey = selectCartesiaKey();
+    const cartesiaKey = await selectCartesiaKey();
     let handledProviderFailure = false;
 
     void logProviderEvent(metadata, {
