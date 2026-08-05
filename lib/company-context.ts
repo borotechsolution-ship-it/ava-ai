@@ -1,9 +1,11 @@
 import { supabaseAdmin } from "@/lib/supabase";
+import { getIndustrySkillOption } from "@/lib/industry-skills";
 
 type CompanyContextInput = {
   prospectName?: string | null;
   companyName?: string | null;
   industry?: string | null;
+  skillSlug?: string | null;
 };
 
 export type CompanyContext = {
@@ -129,6 +131,22 @@ export async function buildCompanyContext(input: CompanyContextInput): Promise<C
   const prospectName = cleanText(input.prospectName, "there");
   const industry = cleanText(input.industry, "general business");
   const cacheKey = contextCacheKey(companyName, industry);
+  const explicitSkill = await getIndustrySkillOption(input.skillSlug).catch(() => null);
+
+  if (explicitSkill) {
+    const playbook = BUILT_IN_PLAYBOOKS[explicitSkill.slug] || fallbackPlaybook(explicitSkill.displayName);
+    const knowledgeSnippets = await readIndustrySkillSnippets(explicitSkill.slug, companyName, explicitSkill.displayName).catch(() => []);
+
+    return withCommonContext({
+      companyName,
+      prospectName,
+      industry: explicitSkill.displayName,
+      source: knowledgeSnippets.length ? "skill" : "built_in",
+      knowledgeSnippets,
+      ...playbook
+    });
+  }
+
   const builtIn = builtInPlaybook(industry);
 
   if (builtIn) {

@@ -2,6 +2,7 @@ import { config } from "@/lib/config";
 import { decryptSecret, encryptSecret, randomToken, sha256 } from "@/lib/crypto";
 import { createLiveKitToken } from "@/lib/livekit";
 import { setDemoCookie } from "@/lib/demo-cookie";
+import { getIndustrySkillOption } from "@/lib/industry-skills";
 import { supabaseAdmin } from "@/lib/supabase";
 import type { DemoInvite, DemoSession } from "@/lib/types";
 
@@ -9,16 +10,35 @@ export type InviteWithLatestSession = DemoInvite & {
   demo_sessions?: Pick<DemoSession, "status" | "started_at" | "ended_at" | "failure_reason">[];
 };
 
+type ReplacementInviteRow = {
+  prospect_name: string;
+  company_name: string;
+  industry: string;
+  skill_slug?: string | null;
+  prospect_email: string | null;
+  max_sessions: number;
+  created_by: string | null;
+  sales_account_id: string | null;
+};
+
 export const INVITES_PAGE_SIZE = 5;
 const MAX_EXPIRY_HOURS = 72;
 const MAX_INVITE_SESSIONS = 3;
 const INVITE_SELECT_COLUMNS =
-  "id,sales_account_id,token_hash,prospect_name,company_name,industry,prospect_email,expires_at,max_sessions,sessions_used,status,created_by,created_at,redeemed_at,revoked_at,infrastructure_retry_count,demo_sessions(status,started_at,ended_at,failure_reason)";
+  "id,sales_account_id,token_hash,prospect_name,company_name,industry,skill_slug,prospect_email,expires_at,max_sessions,sessions_used,status,created_by,created_at,redeemed_at,revoked_at,infrastructure_retry_count,demo_sessions(status,started_at,ended_at,failure_reason)";
 const INVITE_SELECT_COLUMNS_WITH_TOKEN =
+  "id,sales_account_id,token_hash,prospect_name,company_name,industry,skill_slug,token_ciphertext,prospect_email,expires_at,max_sessions,sessions_used,status,created_by,created_at,redeemed_at,revoked_at,infrastructure_retry_count,demo_sessions(status,started_at,ended_at,failure_reason)";
+const INVITE_SELECT_COLUMNS_LEGACY =
+  "id,sales_account_id,token_hash,prospect_name,company_name,industry,prospect_email,expires_at,max_sessions,sessions_used,status,created_by,created_at,redeemed_at,revoked_at,infrastructure_retry_count,demo_sessions(status,started_at,ended_at,failure_reason)";
+const INVITE_SELECT_COLUMNS_WITH_TOKEN_LEGACY =
   "id,sales_account_id,token_hash,prospect_name,company_name,industry,token_ciphertext,prospect_email,expires_at,max_sessions,sessions_used,status,created_by,created_at,redeemed_at,revoked_at,infrastructure_retry_count,demo_sessions(status,started_at,ended_at,failure_reason)";
 
 function isMissingTokenCiphertext(error: { code?: string; message?: string } | null) {
   return ["42703", "PGRST204"].includes(error?.code || "") && error?.message?.includes("token_ciphertext");
+}
+
+function isMissingColumn(error: { code?: string; message?: string } | null, column: string) {
+  return ["42703", "PGRST204"].includes(error?.code || "") && error?.message?.includes(column);
 }
 
 function tokenEncryptionSecret() {
@@ -51,6 +71,7 @@ export async function createInvite(input: {
   prospectName: string;
   companyName: string;
   industry: string;
+  skillSlug?: string;
   prospectEmail?: string;
   expiryHours?: number;
   maxSessions?: number;
@@ -61,6 +82,7 @@ export async function createInvite(input: {
   const tokenHash = sha256(token);
   const expiryHours = clampNumber(input.expiryHours, config.defaultExpiryHours, 1, MAX_EXPIRY_HOURS);
   const maxSessions = clampNumber(input.maxSessions, config.defaultMaxSessions, 1, MAX_INVITE_SESSIONS);
+  const skill = await getIndustrySkillOption(input.skillSlug).catch(() => null);
   const expiresAt = new Date(
     Date.now() + expiryHours * 60 * 60 * 1000
   ).toISOString();
@@ -70,7 +92,8 @@ export async function createInvite(input: {
     token_ciphertext: encryptSecret(token, tokenEncryptionSecret()),
     prospect_name: input.prospectName,
     company_name: input.companyName,
-    industry: input.industry,
+    industry: input.industry || skill?.displayName || "general business",
+    skill_slug: skill?.slug || null,
     prospect_email: input.prospectEmail || null,
     expires_at: expiresAt,
     max_sessions: maxSessions,
@@ -78,11 +101,22 @@ export async function createInvite(input: {
     created_by: input.createdBy || "sales"
   };
 
-  const { data, error } = await supabaseAdmin()
+  let { data, error } = await supabaseAdmin()
     .from("demo_invites")
     .insert(insertPayload)
     .select("id")
     .single();
+
+  if (isMissingColumn(error, "skill_slug")) {
+    const { skill_slug: _skillSlug, ...legacyPayload } = insertPayload;
+    const legacyResult = await supabaseAdmin()
+      .from("demo_invites")
+      .insert(legacyPayload)
+      .select("id")
+      .single();
+    data = legacyResult.data;
+    error = legacyResult.error;
+  }
 
   if (error) throw error;
   if (!data) throw new Error("Invite was not created");
@@ -105,14 +139,35 @@ export async function listInvites(salesAccountId: string, page = 1, latestCreate
   let data: unknown = result.data;
   let error = result.error;
   let count = result.count;
+  let tokenCiphertextUnavailable = false;
 
   if (isMissingTokenCiphertext(error)) {
+    tokenCiphertextUnavailable = true;
     const fallbackResult = await supabaseAdmin()
       .from("demo_invites")
       .select(INVITE_SELECT_COLUMNS, { count: "exact" })
       .eq("sales_account_id", salesAccountId)
       .order("created_at", { ascending: false })
       .range(from, to);
+    data = fallbackResult.data;
+    error = fallbackResult.error;
+    count = fallbackResult.count;
+  }
+
+  if (isMissingColumn(error, "skill_slug")) {
+    const fallbackResult = tokenCiphertextUnavailable
+      ? await supabaseAdmin()
+          .from("demo_invites")
+          .select(INVITE_SELECT_COLUMNS_LEGACY, { count: "exact" })
+          .eq("sales_account_id", salesAccountId)
+          .order("created_at", { ascending: false })
+          .range(from, to)
+      : await supabaseAdmin()
+          .from("demo_invites")
+          .select(INVITE_SELECT_COLUMNS_WITH_TOKEN_LEGACY, { count: "exact" })
+          .eq("sales_account_id", salesAccountId)
+          .order("created_at", { ascending: false })
+          .range(from, to);
     data = fallbackResult.data;
     error = fallbackResult.error;
     count = fallbackResult.count;
@@ -150,20 +205,35 @@ export async function revokeInvite(id: string, salesAccountId: string) {
 
 export async function replaceInvite(id: string, salesAccountId: string) {
   const db = supabaseAdmin();
-  const { data: existing, error: findError } = await db
+  const existingResult = await db
     .from("demo_invites")
-    .select("prospect_name,company_name,industry,prospect_email,max_sessions,created_by,sales_account_id")
+    .select("prospect_name,company_name,industry,skill_slug,prospect_email,max_sessions,created_by,sales_account_id")
     .eq("id", id)
     .eq("sales_account_id", salesAccountId)
     .single();
+  let existing = existingResult.data as ReplacementInviteRow | null;
+  let findError = existingResult.error;
+
+  if (isMissingColumn(findError, "skill_slug")) {
+    const fallbackResult = await db
+      .from("demo_invites")
+      .select("prospect_name,company_name,industry,prospect_email,max_sessions,created_by,sales_account_id")
+      .eq("id", id)
+      .eq("sales_account_id", salesAccountId)
+      .single();
+    existing = fallbackResult.data as ReplacementInviteRow | null;
+    findError = fallbackResult.error;
+  }
 
   if (findError) throw findError;
+  if (!existing) throw new Error("Invite was not found");
   await revokeInvite(id, salesAccountId);
 
   return createInvite({
     prospectName: existing.prospect_name,
     companyName: existing.company_name,
     industry: existing.industry,
+    skillSlug: existing.skill_slug || undefined,
     prospectEmail: existing.prospect_email || undefined,
     maxSessions: existing.max_sessions,
     salesAccountId,

@@ -30,6 +30,7 @@ export async function dispatchAvaAgent(
     companyName?: string | null;
     prospectName?: string | null;
     industry?: string | null;
+    skillSlug?: string | null;
     salesAccountId?: string | null;
     inviteId?: string | null;
     sessionId?: string | null;
@@ -49,6 +50,7 @@ export async function dispatchAvaAgent(
       companyName: metadata.companyName || "your company",
       prospectName: metadata.prospectName || "",
       industry: metadata.industry || "",
+      skillSlug: metadata.skillSlug || "",
       salesAccountId: metadata.salesAccountId || "",
       inviteId: metadata.inviteId || "",
       sessionId: metadata.sessionId || "",

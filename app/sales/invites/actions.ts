@@ -33,6 +33,7 @@ export async function createInviteAction(formData: FormData) {
     prospectName: String(formData.get("prospectName") || ""),
     companyName: String(formData.get("companyName") || ""),
     industry: String(formData.get("industry") || ""),
+    skillSlug: String(formData.get("skillSlug") || "") || undefined,
     prospectEmail: String(formData.get("prospectEmail") || "") || undefined,
     expiryHours: Number(formData.get("expiryHours") || config.defaultExpiryHours),
     maxSessions: Number(formData.get("maxSessions") || config.defaultMaxSessions),

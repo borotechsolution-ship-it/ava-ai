@@ -8,6 +8,7 @@ export type DemoInvite = {
   prospect_name: string;
   company_name: string;
   industry: string;
+  skill_slug: string | null;
   token_ciphertext: string | null;
   invite_url?: string | null;
   prospect_email: string | null;

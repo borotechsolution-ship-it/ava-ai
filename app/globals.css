@@ -1107,6 +1107,78 @@ select option {
   font-size: 15px;
 }
 
+.industry-autocomplete {
+  position: relative;
+}
+
+.industry-autocomplete input {
+  width: 100%;
+}
+
+.skill-pill {
+  display: inline-flex;
+  width: fit-content;
+  margin-top: 8px;
+  border: 1px solid rgba(0, 18, 219, 0.14);
+  border-radius: 999px;
+  padding: 5px 9px;
+  background: rgba(0, 18, 219, 0.06);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1;
+}
+
+.industry-suggestions {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  overflow: hidden;
+  border: 1px solid rgba(197, 197, 216, 0.72);
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 18px 42px rgba(16, 24, 40, 0.12);
+}
+
+.industry-suggestions button,
+.industry-fallback-note {
+  display: grid;
+  width: 100%;
+  gap: 4px;
+  border: 0;
+  border-bottom: 1px solid rgba(216, 219, 232, 0.72);
+  padding: 12px 14px;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+}
+
+.industry-suggestions button:last-child {
+  border-bottom: 0;
+}
+
+.industry-suggestions button:hover,
+.industry-suggestions button:focus {
+  background: rgba(0, 18, 219, 0.06);
+  outline: none;
+}
+
+.industry-suggestions strong,
+.industry-fallback-note strong {
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 18px;
+}
+
+.industry-suggestions span,
+.industry-fallback-note span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 16px;
+}
+
 .sidebar-form .xl-button {
   margin-top: 8px;
   min-height: 56px;

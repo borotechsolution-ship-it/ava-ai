@@ -5,6 +5,25 @@ import { buildCompanyContext } from "@/lib/company-context";
 import { dispatchAvaAgent, endLiveKitRoom } from "@/lib/livekit";
 import { supabaseAdmin } from "@/lib/supabase";
 
+type DispatchInviteRow = {
+  id: string;
+  sales_account_id: string | null;
+  prospect_name: string | null;
+  company_name: string | null;
+  industry: string | null;
+  skill_slug?: string | null;
+};
+
+function isMissingColumn(error: { code?: string; message?: string } | null, column: string) {
+  return ["42703", "PGRST204"].includes(error?.code || "") && error?.message?.includes(column);
+}
+
+function inviteSkillSlug(invite: unknown) {
+  if (!invite || typeof invite !== "object" || !("skill_slug" in invite)) return null;
+  const value = (invite as { skill_slug?: unknown }).skill_slug;
+  return typeof value === "string" && value ? value : null;
+}
+
 export async function sessionIdFromCookie() {
   const cookie = await getDemoCookie();
   if (!cookie) return null;
@@ -88,11 +107,23 @@ export async function dispatchAvaForCurrentSession() {
     return false;
   }
 
-  const { data: invite, error: inviteError } = await supabaseAdmin()
+  const inviteResult = await supabaseAdmin()
     .from("demo_invites")
-    .select("id,sales_account_id,prospect_name,company_name,industry")
+    .select("id,sales_account_id,prospect_name,company_name,industry,skill_slug")
     .eq("id", session.invite_id)
     .maybeSingle();
+  let invite = inviteResult.data as DispatchInviteRow | null;
+  let inviteError = inviteResult.error;
+
+  if (isMissingColumn(inviteError, "skill_slug")) {
+    const fallbackInvite = await supabaseAdmin()
+      .from("demo_invites")
+      .select("id,sales_account_id,prospect_name,company_name,industry")
+      .eq("id", session.invite_id)
+      .maybeSingle();
+    invite = fallbackInvite.data as DispatchInviteRow | null;
+    inviteError = fallbackInvite.error;
+  }
 
   if (inviteError) {
     console.error("Ava dispatch continuing without invite metadata", {
@@ -114,7 +145,8 @@ export async function dispatchAvaForCurrentSession() {
   const companyContext = await buildCompanyContext({
     prospectName: invite?.prospect_name,
     companyName: invite?.company_name,
-    industry: invite?.industry
+    industry: invite?.industry,
+    skillSlug: inviteSkillSlug(invite)
   }).catch((error) => {
     console.error("Ava dispatch continuing without generated company context", {
       sessionId,
@@ -128,6 +160,7 @@ export async function dispatchAvaForCurrentSession() {
     prospectName: invite?.prospect_name,
     companyName: invite?.company_name,
     industry: invite?.industry,
+    skillSlug: inviteSkillSlug(invite),
     salesAccountId: invite?.sales_account_id,
     inviteId: invite?.id,
     sessionId: session.id,

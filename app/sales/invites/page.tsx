@@ -3,8 +3,10 @@ import { cookies } from "next/headers";
 import { createInviteAction, replaceInviteAction, revokeInviteAction } from "@/app/sales/invites/actions";
 import { BrandNav } from "@/components/BrandNav";
 import { CopyLink } from "@/components/CopyLink";
+import { IndustrySkillAutocomplete } from "@/components/IndustrySkillAutocomplete";
 import { StatsCard } from "@/components/StatsCard";
 import { config } from "@/lib/config";
+import { listIndustrySkillOptions } from "@/lib/industry-skills";
 import { InviteWithLatestSession, listInvites } from "@/lib/invites";
 import { LATEST_INVITE_COOKIE } from "@/lib/sales-flash";
 import { getSalesAccount } from "@/lib/sales-auth";
@@ -25,6 +27,7 @@ export default async function SalesInvites({ searchParams }: { searchParams: Pro
   const cookieStore = await cookies();
   const latestInviteUrl = cookieStore.get(LATEST_INVITE_COOKIE)?.value || "";
   const currentPage = Math.max(1, Number(resolvedSearchParams.page || 1));
+  const industrySkills = await listIndustrySkillOptions();
   const inviteResult = await listInvites(salesAccount.id, currentPage).catch((error: unknown) => {
     console.error("Failed to load sales invites", error);
     return {
@@ -219,10 +222,7 @@ export default async function SalesInvites({ searchParams }: { searchParams: Pro
                 Company name
                 <input name="companyName" placeholder="e.g. Acme Corp" required />
               </label>
-              <label>
-                Industry
-                <input name="industry" placeholder="e.g. Fintech" required />
-              </label>
+              <IndustrySkillAutocomplete skills={industrySkills} />
               <label>
                 Prospect email
                 <input name="prospectEmail" placeholder="john@example.com" type="email" />
