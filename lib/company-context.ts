@@ -22,6 +22,7 @@ export type CompanyContext = {
 
 const DEFAULT_TONE = "Warm, calm, polished, concise, and helpful. Ask one question at a time.";
 const CONTEXT_GENERATION_TIMEOUT_MS = Number(process.env.GEMINI_CONTEXT_TIMEOUT_MS || 2500);
+const INDUSTRY_KNOWLEDGE_BUDGET_CHARS = Number(process.env.INDUSTRY_KNOWLEDGE_BUDGET_CHARS || 5200);
 
 type Playbook = Pick<CompanyContext, "commonCallerIntents" | "goodQuestions" | "boundaries">;
 
@@ -206,22 +207,58 @@ async function readIndustrySkillSnippets(skillSlug: string, companyName: string,
     "booking appointment emergency insurance pricing cancellation rescheduling late arrival handoff new patient existing patient"
   ].join(" ");
 
-  const { data, error } = await supabaseAdmin().rpc("match_industry_skill_chunks", {
-    p_skill_slug: skillSlug,
-    p_query: query,
-    p_limit: Number(process.env.INDUSTRY_SKILL_SNIPPET_LIMIT || 7)
-  });
-
-  if (error || !Array.isArray(data)) return [];
-
-  return data
-    .map((row) => {
-      const title = typeof row.title === "string" ? row.title.trim() : "";
-      const content = typeof row.content === "string" ? row.content.trim() : "";
-      return title && content ? `${title}: ${content}` : content;
+  const [mandatoryResult, relevantResult] = await Promise.all([
+    supabaseAdmin()
+      .from("industry_skill_chunks")
+      .select("chunk_key,title,content,priority")
+      .eq("skill_slug", skillSlug)
+      .lte("priority", Number(process.env.INDUSTRY_SKILL_MANDATORY_PRIORITY || 4))
+      .order("priority", { ascending: true })
+      .order("chunk_key", { ascending: true }),
+    supabaseAdmin().rpc("match_industry_skill_chunks", {
+      p_skill_slug: skillSlug,
+      p_query: query,
+      p_limit: Number(process.env.INDUSTRY_SKILL_SNIPPET_LIMIT || 9)
     })
-    .filter((item): item is string => Boolean(item))
-    .slice(0, 8);
+  ]);
+
+  const rows = [
+    ...(Array.isArray(mandatoryResult.data) ? mandatoryResult.data : []),
+    ...(Array.isArray(relevantResult.data) ? relevantResult.data : [])
+  ];
+
+  if ((!rows.length && mandatoryResult.error) || (!rows.length && relevantResult.error)) return [];
+
+  return compactKnowledgeRows(rows, INDUSTRY_KNOWLEDGE_BUDGET_CHARS);
+}
+
+function compactKnowledgeRows(rows: unknown[], budgetChars: number) {
+  const seen = new Set<string>();
+  const snippets: string[] = [];
+  let used = 0;
+  const maxBudget = Number.isFinite(budgetChars) && budgetChars > 1200 ? budgetChars : 5200;
+
+  for (const row of rows) {
+    if (!row || typeof row !== "object") continue;
+
+    const record = row as { chunk_key?: unknown; title?: unknown; content?: unknown };
+    const key = typeof record.chunk_key === "string" ? record.chunk_key : "";
+    if (key && seen.has(key)) continue;
+    if (key) seen.add(key);
+
+    const title = typeof record.title === "string" ? record.title.trim() : "";
+    const content = typeof record.content === "string" ? record.content.trim().replace(/\s+/g, " ") : "";
+    if (!content) continue;
+
+    const snippet = title ? `${title}: ${content}` : content;
+    const nextUsed = used + snippet.length + 2;
+    if (nextUsed > maxBudget && snippets.length >= 4) break;
+
+    snippets.push(snippet);
+    used = nextUsed;
+  }
+
+  return snippets.slice(0, 10);
 }
 
 async function readCachedContext(cacheKey: string) {

@@ -62,6 +62,13 @@ Response shape:
 - Ask exactly one relevant next question.
 - Never list more than three options.
 - Never add filler phrases after a complete answer.
+
+Premium behavior:
+- For "what services do you offer?", mention two or three relevant service categories, then ask what the caller needs help with.
+- For booking intent, collect the next missing field naturally; do not dump every required field at once.
+- For urgent or sensitive topics, sound calm and decisive, then route safely.
+- If you do not have live availability or account access, say the team can confirm it and collect the caller's preference.
+- Prefer confident receptionist language over AI disclaimers.
 `;
 
 function parseDispatchMetadata(ctx) {
