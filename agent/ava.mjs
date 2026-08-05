@@ -190,6 +190,57 @@ function booleanEnv(name, fallback) {
   return !["0", "false", "no", "off"].includes(value.trim().toLowerCase());
 }
 
+function transcriptDebugEnabled() {
+  return booleanEnv("AVA_DEBUG_TRANSCRIPTS", false);
+}
+
+function oneLineTranscript(value) {
+  const text = typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
+  return text.length > 1200 ? `${text.slice(0, 1200)}...` : text;
+}
+
+function contentPartToText(content) {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) return content.map(contentPartToText).filter(Boolean).join(" ");
+
+  if (content && typeof content === "object") {
+    if (typeof content.text === "string") return content.text;
+    if (typeof content.content === "string") return content.content;
+    if (typeof content.value === "string") return content.value;
+  }
+
+  return "";
+}
+
+function chatItemRole(item) {
+  return String(item?.role || item?.message?.role || "").toLowerCase();
+}
+
+function chatItemText(item) {
+  return contentPartToText(item?.content ?? item?.text ?? item?.message?.content ?? "");
+}
+
+function installDebugTranscriptLogging(session, metadata, roomName) {
+  if (!transcriptDebugEnabled()) return;
+
+  const sessionId = cleanText(metadata.sessionId, "unknown-session");
+  const prefix = `room=${roomName} session=${sessionId}`;
+
+  session.on("user_input_transcribed", (event) => {
+    if (!event?.isFinal) return;
+    const text = oneLineTranscript(event.transcript);
+    if (text) console.info(`CALLER_FINAL ${prefix}: ${text}`);
+  });
+
+  session.on("conversation_item_added", (event) => {
+    const item = event?.item;
+    if (chatItemRole(item) !== "assistant") return;
+
+    const text = oneLineTranscript(chatItemText(item));
+    if (text) console.info(`AVA_FINAL ${prefix}: ${text}`);
+  });
+}
+
 function cancelFillerSpeech(fillerRef) {
   if (fillerRef.timer) {
     clearTimeout(fillerRef.timer);
@@ -600,6 +651,8 @@ export default defineAgent({
         }
       }
     });
+
+    installDebugTranscriptLogging(session, metadata, ctx.room.name);
 
     session.on("error", (event) => {
       if (handledProviderFailure) return;
