@@ -22,7 +22,7 @@ export type CompanyContext = {
 
 const DEFAULT_TONE = "Warm, calm, polished, concise, and helpful. Ask one question at a time.";
 const CONTEXT_GENERATION_TIMEOUT_MS = Number(process.env.GEMINI_CONTEXT_TIMEOUT_MS || 2500);
-const INDUSTRY_KNOWLEDGE_BUDGET_CHARS = Number(process.env.INDUSTRY_KNOWLEDGE_BUDGET_CHARS || 6800);
+const INDUSTRY_KNOWLEDGE_BUDGET_CHARS = Number(process.env.INDUSTRY_KNOWLEDGE_BUDGET_CHARS || 7600);
 
 type Playbook = Pick<CompanyContext, "commonCallerIntents" | "goodQuestions" | "boundaries">;
 
@@ -204,7 +204,7 @@ async function readIndustrySkillSnippets(skillSlug: string, companyName: string,
   const query = [
     companyName,
     industry,
-    "booking appointment provider doctor hygienist calendar availability slot after work evening emergency insurance pricing PPO HMO Medicaid cancellation rescheduling late arrival traffic phone email confirm spell objection anxious caller uninsured waitlist handoff new patient existing patient"
+    "booking appointment provider doctor hygienist calendar availability slot cleaning six month recall bad prior experience after work evening emergency insurance pricing PPO HMO Medicaid cancellation rescheduling late arrival traffic phone email confirm spell objection anxious nervous caller uninsured waitlist family appointment pain swelling callback handoff new patient existing patient"
   ].join(" ");
 
   const [mandatoryResult, relevantResult] = await Promise.all([
