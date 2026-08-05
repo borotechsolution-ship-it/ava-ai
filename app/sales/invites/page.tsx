@@ -4,6 +4,8 @@ import { createInviteAction, replaceInviteAction, revokeInviteAction } from "@/a
 import { BrandNav } from "@/components/BrandNav";
 import { CopyLink } from "@/components/CopyLink";
 import { IndustrySkillAutocomplete } from "@/components/IndustrySkillAutocomplete";
+import { PendingLink } from "@/components/PendingLink";
+import { PendingSubmitButton } from "@/components/PendingSubmitButton";
 import { StatsCard } from "@/components/StatsCard";
 import { config } from "@/lib/config";
 import { listIndustrySkillOptions } from "@/lib/industry-skills";
@@ -160,16 +162,16 @@ export default async function SalesInvites({ searchParams }: { searchParams: Pro
                             {status === "active" ? (
                               <form action={revokeInviteAction}>
                                 <input type="hidden" name="id" value={invite.id} />
-                                <button className="action-button action-danger" type="submit">
+                                <PendingSubmitButton className="action-button action-danger" pendingChildren="Revoking...">
                                   Revoke
-                                </button>
+                                </PendingSubmitButton>
                               </form>
                             ) : null}
                             <form action={replaceInviteAction}>
                               <input type="hidden" name="id" value={invite.id} />
-                              <button className="action-button action-secondary" type="submit">
+                              <PendingSubmitButton className="action-button action-secondary" pendingChildren="Replacing...">
                                 Replace
-                              </button>
+                              </PendingSubmitButton>
                             </form>
                           </div>
                         </td>
@@ -185,13 +187,13 @@ export default async function SalesInvites({ searchParams }: { searchParams: Pro
                 {totalCount} invitations
               </p>
               <div className="row-actions">
-                <a className="pager-button" aria-disabled={page <= 1} href={previousHref}>
+                <PendingLink className="pager-button" disabled={page <= 1} href={previousHref}>
                   Previous
-                </a>
+                </PendingLink>
                 <span className="status">Page {page} of {totalPages}</span>
-                <a className="pager-button" aria-disabled={page >= totalPages} href={nextHref}>
+                <PendingLink className="pager-button" disabled={page >= totalPages} href={nextHref}>
                   Next
-                </a>
+                </PendingLink>
               </div>
             </div>
           </section>
@@ -240,9 +242,9 @@ export default async function SalesInvites({ searchParams }: { searchParams: Pro
                 Max allowed demo sessions
                 <input name="maxSessions" type="number" min="1" max="3" defaultValue={config.defaultMaxSessions} />
               </label>
-              <button className="button xl-button" type="submit">
+              <PendingSubmitButton className="button xl-button" pendingChildren="Generating...">
                 Generate link
-              </button>
+              </PendingSubmitButton>
             </form>
           </div>
         </aside>

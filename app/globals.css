@@ -399,6 +399,31 @@ select option {
   opacity: 0.45;
 }
 
+.button[data-pending="true"],
+.action-button[data-pending="true"],
+.pager-button[data-pending="true"] {
+  opacity: 0.78;
+  cursor: wait;
+}
+
+.button-spinner {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 28px;
+  height: 28px;
+  border: 3px solid rgba(255, 255, 255, 0.36);
+  border-top-color: #ffffff;
+  border-radius: 999px;
+  animation: spin 0.75s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .bento-grid {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
@@ -2094,6 +2119,18 @@ th {
   transform: translateY(-4px) scale(1.04);
   background: #16b957;
   box-shadow: 0 24px 80px rgba(32, 199, 101, 0.52);
+}
+
+.call-button:disabled {
+  cursor: wait;
+  opacity: 1;
+  transform: none;
+  background: #18b95a;
+}
+
+.call-button[data-pending="true"]::before,
+.call-button[data-pending="true"]::after {
+  animation-duration: 1s;
 }
 
 .call-button span {
