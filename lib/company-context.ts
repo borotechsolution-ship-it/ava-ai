@@ -204,7 +204,7 @@ async function readIndustrySkillSnippets(skillSlug: string, companyName: string,
   const query = [
     companyName,
     industry,
-    "booking appointment emergency insurance pricing cancellation rescheduling late arrival handoff new patient existing patient"
+    "booking appointment provider doctor hygienist calendar availability slot after work evening emergency insurance pricing PPO HMO Medicaid cancellation rescheduling late arrival phone email confirm spell handoff new patient existing patient"
   ].join(" ");
 
   const [mandatoryResult, relevantResult] = await Promise.all([
