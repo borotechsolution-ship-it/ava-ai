@@ -16,15 +16,18 @@ export type CompanyContext = {
   commonCallerIntents: string[];
   goodQuestions: string[];
   boundaries: string[];
-  source: "built_in" | "generated" | "fallback";
+  knowledgeSnippets: string[];
+  source: "skill" | "built_in" | "generated" | "fallback";
 };
 
 const DEFAULT_TONE = "Warm, calm, polished, concise, and helpful. Ask one question at a time.";
 const CONTEXT_GENERATION_TIMEOUT_MS = Number(process.env.GEMINI_CONTEXT_TIMEOUT_MS || 2500);
 
+type Playbook = Pick<CompanyContext, "commonCallerIntents" | "goodQuestions" | "boundaries">;
+
 const BUILT_IN_PLAYBOOKS: Record<
   string,
-  Pick<CompanyContext, "commonCallerIntents" | "goodQuestions" | "boundaries">
+  Playbook
 > = {
   hvac: {
     commonCallerIntents: [
@@ -128,12 +131,21 @@ export async function buildCompanyContext(input: CompanyContextInput): Promise<C
   const builtIn = builtInPlaybook(industry);
 
   if (builtIn) {
-    return withCommonContext({ companyName, prospectName, industry, source: "built_in", ...builtIn });
+    const knowledgeSnippets = await readIndustrySkillSnippets(builtIn.skillSlug, companyName, industry).catch(() => []);
+
+    return withCommonContext({
+      companyName,
+      prospectName,
+      industry,
+      source: knowledgeSnippets.length ? "skill" : "built_in",
+      knowledgeSnippets,
+      ...builtIn.playbook
+    });
   }
 
   const cached = await readCachedContext(cacheKey);
   if (cached) {
-    return withCommonContext({ companyName, prospectName, industry, source: "generated", ...cached });
+    return withCommonContext({ companyName, prospectName, industry, source: "generated", knowledgeSnippets: [], ...cached });
   }
 
   const generated = await generateIndustryPlaybook({ companyName, industry }).catch(() => null);
@@ -145,12 +157,16 @@ export async function buildCompanyContext(input: CompanyContextInput): Promise<C
     prospectName,
     industry,
     source: generated ? "generated" : "fallback",
+    knowledgeSnippets: [],
     ...playbook
   });
 }
 
 function withCommonContext(
-  context: Pick<CompanyContext, "companyName" | "prospectName" | "industry" | "commonCallerIntents" | "goodQuestions" | "boundaries" | "source">
+  context: Pick<
+    CompanyContext,
+    "companyName" | "prospectName" | "industry" | "commonCallerIntents" | "goodQuestions" | "boundaries" | "knowledgeSnippets" | "source"
+  >
 ): CompanyContext {
   return {
     ...context,
@@ -162,21 +178,50 @@ function withCommonContext(
 
 function builtInPlaybook(industry: string) {
   const normalized = normalizeIndustry(industry);
-  if (normalized.includes("hvac")) return BUILT_IN_PLAYBOOKS.hvac;
+  if (normalized.includes("hvac")) return { skillSlug: "hvac", playbook: BUILT_IN_PLAYBOOKS.hvac };
   if (
     normalized.includes("dental") ||
     normalized.includes("dentist") ||
     normalized.includes("orthodont") ||
     normalized.includes("oral surgery")
   ) {
-    return BUILT_IN_PLAYBOOKS.dental;
+    return { skillSlug: "dental", playbook: BUILT_IN_PLAYBOOKS.dental };
   }
-  if (normalized.includes("medical") || normalized.includes("hospital") || normalized.includes("clinic")) return BUILT_IN_PLAYBOOKS.medical;
-  if (normalized.includes("medspa") || normalized.includes("spa")) return BUILT_IN_PLAYBOOKS.medspa;
-  if (normalized.includes("solar")) return BUILT_IN_PLAYBOOKS.solar;
-  if (normalized.includes("manufactur")) return BUILT_IN_PLAYBOOKS.manufacturing;
-  if (normalized === "it" || normalized.includes("software") || normalized.includes("technology")) return BUILT_IN_PLAYBOOKS.it;
+  if (normalized.includes("medical") || normalized.includes("hospital") || normalized.includes("clinic")) {
+    return { skillSlug: "medical", playbook: BUILT_IN_PLAYBOOKS.medical };
+  }
+  if (normalized.includes("medspa") || normalized.includes("spa")) return { skillSlug: "medspa", playbook: BUILT_IN_PLAYBOOKS.medspa };
+  if (normalized.includes("solar")) return { skillSlug: "solar", playbook: BUILT_IN_PLAYBOOKS.solar };
+  if (normalized.includes("manufactur")) return { skillSlug: "manufacturing", playbook: BUILT_IN_PLAYBOOKS.manufacturing };
+  if (normalized === "it" || normalized.includes("software") || normalized.includes("technology")) {
+    return { skillSlug: "it", playbook: BUILT_IN_PLAYBOOKS.it };
+  }
   return null;
+}
+
+async function readIndustrySkillSnippets(skillSlug: string, companyName: string, industry: string) {
+  const query = [
+    companyName,
+    industry,
+    "booking appointment emergency insurance pricing cancellation rescheduling late arrival handoff new patient existing patient"
+  ].join(" ");
+
+  const { data, error } = await supabaseAdmin().rpc("match_industry_skill_chunks", {
+    p_skill_slug: skillSlug,
+    p_query: query,
+    p_limit: Number(process.env.INDUSTRY_SKILL_SNIPPET_LIMIT || 7)
+  });
+
+  if (error || !Array.isArray(data)) return [];
+
+  return data
+    .map((row) => {
+      const title = typeof row.title === "string" ? row.title.trim() : "";
+      const content = typeof row.content === "string" ? row.content.trim() : "";
+      return title && content ? `${title}: ${content}` : content;
+    })
+    .filter((item): item is string => Boolean(item))
+    .slice(0, 8);
 }
 
 async function readCachedContext(cacheKey: string) {
@@ -199,7 +244,7 @@ async function writeCachedContext(
   cacheKey: string,
   companyName: string,
   industry: string,
-  playbook: Pick<CompanyContext, "commonCallerIntents" | "goodQuestions" | "boundaries">
+  playbook: Playbook
 ) {
   await supabaseAdmin().from("demo_company_context_cache").upsert(
     {

@@ -89,8 +89,8 @@ function cleanText(value, fallback = "") {
   return text || fallback;
 }
 
-function stringList(value) {
-  return Array.isArray(value) ? value.filter((item) => typeof item === "string" && item.trim()).slice(0, 6) : [];
+function stringList(value, limit = 6) {
+  return Array.isArray(value) ? value.filter((item) => typeof item === "string" && item.trim()).slice(0, limit) : [];
 }
 
 function companyContextFromMetadata(metadata) {
@@ -107,7 +107,8 @@ function companyContextFromMetadata(metadata) {
     tone: cleanText(context.tone, "Warm, calm, polished, concise, and helpful. Ask one question at a time."),
     commonCallerIntents: stringList(context.commonCallerIntents),
     goodQuestions: stringList(context.goodQuestions),
-    boundaries: stringList(context.boundaries)
+    boundaries: stringList(context.boundaries),
+    knowledgeSnippets: stringList(context.knowledgeSnippets, 8)
   };
 }
 
@@ -115,6 +116,7 @@ function instructionsForCompany(context) {
   const intents = context.commonCallerIntents.length ? context.commonCallerIntents : ["General service inquiry", "Pricing question", "Availability question", "Human follow-up"];
   const questions = context.goodQuestions.length ? context.goodQuestions : ["What can I help you with today?", "Is this a new request or an existing one?", "What is the best way for the team to follow up?"];
   const boundaries = context.boundaries.length ? context.boundaries : ["Do not invent exact pricing, availability, or internal company details."];
+  const snippets = context.knowledgeSnippets.length ? context.knowledgeSnippets : [];
 
   return `${AVA_BASE_INSTRUCTIONS}
 
@@ -133,6 +135,15 @@ ${questions.map((question) => `- ${question}`).join("\n")}
 
 Boundaries:
 ${boundaries.map((boundary) => `- ${boundary}`).join("\n")}
+
+Retrieved industry knowledge:
+${snippets.length ? snippets.map((snippet) => `- ${snippet}`).join("\n") : "- No extra industry knowledge was retrieved for this call."}
+
+Knowledge usage rules:
+- Treat retrieved industry knowledge as policy and behavior guidance, not as the caller's exact clinic identity.
+- If retrieved knowledge contains sample names, addresses, providers, dates, fees, or phone numbers, do not present them as facts unless the caller explicitly provided or confirmed them.
+- Always use the Company context above as your identity.
+- Do not recite source text. Use it to answer briefly and safely.
 `;
 }
 
