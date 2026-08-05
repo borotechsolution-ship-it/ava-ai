@@ -230,7 +230,8 @@ async function generateIndustryPlaybook({ companyName, industry }: { companyName
     "Do not browse. Use general business knowledge only.",
     "Return strict JSON with keys: commonCallerIntents, goodQuestions, boundaries.",
     "Each key must be an array of 4 to 6 short strings.",
-    "Keep it generic, safe, and useful for a live receptionist call."
+    "Focus on call routing, intake, safe handoff triggers, and what a receptionist should ask next.",
+    "Avoid long explanations. Make each item useful for a low-latency live voice call."
   ].join("\n");
 
   const response = await fetch(
@@ -278,7 +279,11 @@ function fallbackPlaybook(industry: string) {
       "What timeline are you hoping for?",
       "What is the best way for the team to follow up?"
     ],
-    boundaries: ["Do not invent exact pricing, availability, legal advice, medical advice, or internal company details."]
+    boundaries: [
+      "Do not invent exact pricing, availability, legal advice, medical advice, or internal company details.",
+      "For urgent, sensitive, billing, safety, or account-specific questions, collect details and offer human follow-up.",
+      "Keep responses brief, answer the direct question, then ask one relevant next question."
+    ]
   };
 }
 
